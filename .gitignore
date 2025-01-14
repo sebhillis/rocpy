@@ -173,3 +173,13 @@ cython_debug/
 # Codegen and testing
 *.ipynb
 roc_docs/
+
+# Auto-documentation
+_build
+_static
+_templates
+.jython_cache
+conf.py
+index.rst
+make.bat
+Makefile

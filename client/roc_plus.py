@@ -9,7 +9,15 @@ from opcode_models.opcodes import SinglePointParameterData, SinglePointParameter
 from client.models import *
 from opcode_models import *
 from client.exceptions import *
-from client.models import ConfigurableOpcodeTableDefinition, ConfigurableOpcodeTablesDefinition, HistoryDefinition, IODefinition, IOPointDefinition, HistorySegmentPointConfiguration, HistorySegmentConfiguration
+from client.models import (
+    ConfigurableOpcodeTableDefinition, 
+    ConfigurableOpcodeTablesDefinition, 
+    HistoryDefinition, 
+    IODefinition, 
+    IOPointDefinition, 
+    HistorySegmentPointConfiguration, 
+    HistorySegmentConfiguration
+)
 from tlp_models.point_types import PointTypeNotFoundError
 from tlp_models.tlp import TLPInstance, TLPValue, TLPValues
 from client.async_tcp_generic import TCPClient
@@ -259,6 +267,21 @@ class ROCPlusClient:
         ...
     
     async def read_tlp(self, *args, **kwargs) -> TLPValue:
+        """
+        Retrieve TLP value.
+
+        Signatures:
+            1. `read_tlp(point_type: int, logical_number: int, parameter: int) -> TLPValue`
+            2. `read_tlp(tlp_def: TLPInstance) -> TLPValue`
+
+        Args:
+            point_type (int): TLP Point Type ("T")
+            logical_number (int): TLP Logical Number ("L")
+            parameter (int): TLP Parameter ("P")
+
+        Returns:
+            TLPValue: TLP Value object.
+        """
         tlp_def: Optional[TLPInstance] = None
         if len(args) == 1:
             tlp_def = args[0]
@@ -927,18 +950,23 @@ class ROCPlusClient:
             str: JSON containing ROC configuration data. This includes System Configuration, I/O Configuration, User Opcode Table Configuration,
                 and History Configuration.
         """
+        # Initialize history definition if needed
         if not(self.history_definition._defined):
             await self.initialize_history_definition()
 
+        # Initialize history definition if needed
         if not(self.io_definition._defined):
             await self.initialize_io_definition()
         
+        # Initialize history definition if needed
         if not(self.configurable_opcode_tables_definition._defined):
             await self.initialize_configurable_opcode_definition()
         
+        # Initialize history definition if needed
         if not(self.system_config):
             await self.get_system_config(store_internally=True)
         
+        # Construct definition payload
         config_list = [
             self.history_definition.as_dict(),
             self.io_definition.as_dict(),
@@ -946,4 +974,5 @@ class ROCPlusClient:
             self.system_config.model_dump() if self.system_config else None
         ]
         config_json: str = json.dumps(config_list, indent=2)
+        
         return config_json
