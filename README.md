@@ -57,3 +57,11 @@ All TLPs (ROC-specific data addresses) used by internal code and available for c
   "tag_name": null
 }
 ```
+
+TLP "instances" can be created a few different ways, depending on what information is available to the user.
+
+1. T/L/P Integers
+
+```python
+tlp = TLPInstance.from_integers(point_type=103, parameter=21, logical_number=1)
+```

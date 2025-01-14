@@ -1,3 +1,5 @@
+from re import L
+from tracemalloc import start
 from typing import List, Dict, Tuple, overload, AsyncGenerator, Optional, TypeVar, Type, Union
 import asyncio
 from contextlib import asynccontextmanager
@@ -158,14 +160,27 @@ class ROCPlusClient:
         """
         Send a single Opcode request and get response.
 
-        If not being used with an async context manager, the connection will be closed after
-            the response data is returned by the connection or an exception is raised.
+        The request data type will be used to generate the corresponding response
+        data type, i.e. for a SystemConfigRequestData instance as the 
+        request_data argument, a SystemConfigResponseData instance will be 
+        returned.
+
+        If not being used with an async context manager, the connection will be closed 
+        after the response data is returned by the connection or an exception is raised.
 
         Args:
             request_data (RequestData): Instance of RequestData for specific Opcode request.
 
         Returns:
             Response[ResponseData]: Response model instance.
+
+        Example:
+            >>> client = ROCPlusClient(ip='192.168.1.1', port=10001, roc_address=1, roc_group=2)
+            >>> await client.connect()
+            >>> request_data = SystemConfigRequestData()
+            >>> response = await client.unary_opcode_request(request_data)
+            >>> print(type(response.response_data))
+            <class 'opcode_models.opcodes.SystemConfigResponseData'>
         """
         try:
             self.logger.debug('Making opcode request.')
@@ -208,12 +223,13 @@ class ROCPlusClient:
         Validates that the response to an Opcode has the expected data type.
 
         This method essentially encapsulates checking a response for an error Opcode, empty data, or unexpected data,
-            and returns the core data from the response. This method gets used by the Opcode convenience methods like
-            get_system_config that return the data as opposed to the entirety of the Opcode response.
+        and returns the core data from the response. This method gets used by the Opcode convenience methods like
+        get_system_config that return the data as opposed to the entirety of the Opcode response.
 
         Args:
             response_data (ResponseData): The ResponseData payload returned for the request. Typically retrieved like "response.response_data".
-            response_data_type (Type[TResp]): The expected return type of the "data" field of the ResponseData object. Typically retrieved like "response.response_data.data".
+            response_data_type (Type[TResp]): The expected return type of the "data" field of the ResponseData object. 
+                Typically retrieved like "response.response_data.data".
 
         Raises:
             ROCErrorResponseError: The Opcode returned an error response (Opcode 255).
@@ -240,247 +256,141 @@ class ROCPlusClient:
 
     @overload
     async def read_tlp(self, tlp_def: TLPInstance) -> TLPValue:
-        """
-        Retrieve TLP value.
-
-        Args:
-            tlp_def (TLPInstance): TLP definition object.
-
-        Returns:
-            TLPValue: TLP value object.
-        """
         ...
     
     @overload
-    async def read_tlp(self, point_type: int, logical_number: int, parameter: int) -> TLPValue:
-        """
-        Retrieve TLP value.
-
-        Args:
-            point_type (int): TLP Point Type ("T")
-            logical_number (int): TLP Logical Number ("L")
-            parameter (int): TLP Parameter ("P")
-
-        Returns:
-            TLPValue: TLP Value object.
-        """
+    async def read_tlp(self, tlp_def: Tuple[int, int, int]) -> TLPValue:
         ...
     
-    async def read_tlp(self, *args, **kwargs) -> TLPValue:
+    async def read_tlp(self, tlp_def: TLPInstance | Tuple[int, int, int]) -> TLPValue:
         """
-        Retrieve TLP value.
-
-        Signatures:
-            1. `read_tlp(point_type: int, logical_number: int, parameter: int) -> TLPValue`
-            2. `read_tlp(tlp_def: TLPInstance) -> TLPValue`
+        Retrieve current value for a single TLP.
 
         Args:
-            point_type (int): TLP Point Type ("T")
-            logical_number (int): TLP Logical Number ("L")
-            parameter (int): TLP Parameter ("P")
+            tlp_def (TLPInstance | Tuple[int, int, int]): Either a TLPInstance instance or a tuple containing the TLP integers like
+                (Type, Logical/Point, Parameter) (ex: (103, 1, 21)).
 
         Returns:
             TLPValue: TLP Value object.
         """
-        tlp_def: Optional[TLPInstance] = None
-        if len(args) == 1:
-            tlp_def = args[0]
-        elif 'tlp_def' in kwargs:
-            tlp_def = kwargs['tlp_def']
-        elif len(args) == 3:
-            tlp_def = TLPInstance.from_integers(
-                point_type=args[0],
-                logical_number=args[1],
-                parameter=args[2]
-            )
-        elif 'point_type' in kwargs and 'logical_number' in kwargs and 'parameter' in kwargs:
-            tlp_def = TLPInstance.from_integers(
-                point_type=kwargs['point_type'],
-                logical_number=kwargs['logical_number'],
-                parameter=kwargs['parameter']
-            )
-        else:
-            raise ROCError('Invalid arguments supplied.')
+        # Parse TLP definitions
+        if isinstance(tlp_def, TLPInstance):
+            pass
+        elif isinstance(tlp_def, Tuple):
+            if all(isinstance(ele, int) for ele in tlp_def):
+                tlp_def = TLPInstance.from_integers(
+                    point_type=tlp_def[0],
+                    logical_number=tlp_def[1],
+                    parameter=tlp_def[2]
+                )
+            else:
+                raise ROCError('Invalid arguments supplied.')
         
-        if tlp_def:
-            request_data = ParameterRequestData(tlps=[tlp_def])
-            response: Response[ResponseData] = await self.unary_opcode_request(request_data=request_data)
-            data: ParameterData = self.validate_response(response_data=response.response_data, response_data_type=ParameterData)
-            tlp_values: List[TLPValue] = self.get_named_values(data.values)
-            return tlp_values[0]
-        else:
-            raise ROCDataError('Unable to construct TLP Instance.')
+        # Make opcode request
+        request_data = ParameterRequestData(tlps=[tlp_def])
+        response: Response[ResponseData] = await self.unary_opcode_request(request_data=request_data)
+        data: ParameterData = self.validate_response(response_data=response.response_data, response_data_type=ParameterData)
+        tlp_values: List[TLPValue] = self.get_named_values(data.values)
+        
+        return tlp_values[0]
         
 
 
     @overload
     async def read_tlps(self, tlp_defs: List[TLPInstance]) -> TLPValues:
-        """
-        Retrieve TLP values.
-
-        Args:
-            tlp_defs (List[TLPInstance]): TLP definition objects.
-
-        Returns:
-            List[TLPValue]: TLP value objects.
-        """
         ...
 
     @overload
     async def read_tlps(self, tlp_defs: List[Tuple[int, int, int]]) -> TLPValues:
-        """
-        Retrieve TLP values
-
-        Args:
-            tlp_defs (List[Tuple[int, int, int]]): List of tuples containing T, L, and P values.
-
-        Returns:
-            List[TLPValue]: TLP value objects.
-        """
         ...
 
-    async def read_tlps(self, *args, **kwargs) -> TLPValues:
-        tlp_defs: Optional[List[TLPInstance]] = None
+    async def read_tlps(self, tlp_defs: List[TLPInstance] | List[Tuple[int, int, int]]) -> TLPValues:
+        """
+        Retrieve current value for a set of TLPs.
 
-        # Parse args vs. kwargs
-        if len(args) == 1:
-            tlp_def_list = args[0]
-        elif 'tlp_defs' in kwargs:
-            tlp_def_list = kwargs['tlp_defs']
-        else:
-            raise ValueError('Invalid arguments supplied.')
-        
-        # Determine argument type
-        if isinstance(tlp_def_list, list):
-            if isinstance(tlp_def_list[0], tuple):
-                tlp_defs = []
-                for _type, _logical, _parameter in tlp_def_list:
-                    tlp_defs.append(
-                        TLPInstance.from_integers(
-                            point_type=_type, 
-                            logical_number=_logical,
-                            parameter=_parameter
-                        )
-                    )
-            elif isinstance(tlp_def_list[0], TLPInstance):
-                tlp_defs = tlp_def_list
+        Args:
+            tlp_defs (List[TLPInstance] | List[Tuple[int, int, int]]): List of TLPInstance instances or a list of 
+                tuples containing the TLP integers like (Type, Logical/Point, Parameter) (ex: (103, 1, 21)). The list
+                can also technically mix the two types if needed for some application.
+
+        Returns:
+            List[TLPValue]: A list of TLP value objects.
+        """
+        # Parse TLP definitions
+        tlps: List[TLPInstance] = []
+        for tlp_def in tlp_defs:
+            if isinstance(tlp_def, Tuple):
+                if all(isinstance(ele, int) for ele in tlp_def):
+                    tlps.append(TLPInstance.from_integers(
+                        point_type=tlp_def[0],
+                        logical_number=tlp_def[1],
+                        parameter=tlp_def[2]
+                    ))
+                else:
+                    raise ROCDataError('Invalid arguments supplied.')
+            elif isinstance(tlp_def, TLPInstance):
+                tlps.append(tlp_def)
             else:
-                raise ROCError('Invalid types within list.')
-        else:
-            raise ROCError('Argument provided not a list.')
+                raise ROCDataError(f'Invalid element type in TLP definition list: {type(tlp_def)}')
     
         # Make opcode request
-        if tlp_defs:
-            request_data = ParameterRequestData(tlps=tlp_defs)
-            response: Response[ResponseData] = await self.unary_opcode_request(request_data=request_data)
-            data: ParameterData = self.validate_response(response_data=response.response_data, response_data_type=ParameterData)
-            tlp_values: List[TLPValue] = self.get_named_values(data.values)
-            return TLPValues(values=tlp_values, timestamp=datetime.now())
-        else:
-            raise ROCDataError('Unable to construct TLP Instance.')
+        request_data = ParameterRequestData(tlps=tlps)
+        response: Response[ResponseData] = await self.unary_opcode_request(request_data=request_data)
+        data: ParameterData = self.validate_response(response_data=response.response_data, response_data_type=ParameterData)
+        tlp_values: List[TLPValue] = self.get_named_values(data.values)
+        return TLPValues(values=tlp_values, timestamp=datetime.now())
         
 
 
     @overload
     async def read_contiguous_tlps(
         self, 
-        starting_tlp: TLPInstance, 
+        starting_tlp: TLPInstance,
         number_of_parameters: int
     ) -> TLPValues:
-        """
-        Read contiguous set of parameters from a given point type and logical number.
-
-        Args:
-            starting_tlp (TLPInstance): TLPInstance instance representing the point type, logical point, and starting parameter number.
-            number_of_parameters (int): Number of parameters to request.
-
-        Returns:
-            TLPValues: Values object with value of the parameters requested.
-        """
         ...
 
     @overload
     async def read_contiguous_tlps(
         self, 
-        point_type: Type[PointType],
-        logical_number: int,
-        number_of_parameters: int,
-        starting_parameter_number: int
+        starting_tlp: Tuple[int, int, int],
+        number_of_parameters: int
     ) -> TLPValues:
-        """
-        Read contiguous set of parameters from a given point type and logical number.
-
-        Args:
-            point_type (Type[PointType]): PointType subclass.
-            logical_number (int): Logical/Point number.
-            number_of_parameters (int): Number of parameters to request.
-            starting_parameter_number (int): Starting parameter number for the request.
-
-        Returns:
-            TLPValues: Values object with value of the parameters requested.
-        """
         ...
 
-    @overload
-    async def read_contiguous_tlps(
-        self, 
-        point_type: int,
-        logical_number: int,
-        number_of_parameters: int,
-        starting_parameter_number: int
-    ) -> TLPValues:
+    async def read_contiguous_tlps(self, starting_tlp: TLPInstance | Tuple[int, int, int], number_of_parameters: int) -> TLPValues:
         """
-        Read contiguous set of parameters from a given point type and logical number.
+        Read contiguous set of parameters from a single point type and logical number.
 
-        Args:
-            point_type (int): Point type number.
-            logical_number (int): Logical/Point number.
-            number_of_parameters (int): Number of parameters to request.
-            starting_parameter_number (int): Starting parameter number for the request.
-
-        Returns:
-            TLPValues: Values object with value of the parameters requested.
-        """
-        ...
-
-    async def read_contiguous_tlps(self, *args, **kwargs) -> TLPValues:
+        A point type, logical/point number, and starting parameter number are extracted from the 
+        provided TLP definition. Then the number of parameters specified are read from that point 
+        type/logical number combination, inclusive of the starting parameter.
         
-        # Determine argument composition
-        if len(args) == 2 or len(kwargs) == 2:
-            if len(args) == 2:
-                starting_tlp: TLPInstance = args[0]
-                number_of_parameters: int = args[1]
-            elif len(kwargs) == 2:
-                starting_tlp: TLPInstance = kwargs['starting_tlp']
-                number_of_parameters: int = kwargs['number_of_parameters']
-            else:
-                raise TypeError('Invalid arguments.')
+        For example, with a starting TLP of (103, 1, 21) and 5 parameters requested, the TLP values 
+        returned will be for point type 103, logical number 1, and parameters 21, 22, 23, 24, and 25.
+
+        Args:
+            starting_tlp (TLPInstance | Tuple[int, int, int]): Starting TLP definition; either a 
+                TLPInstance instance or a tuple of the TLP integers like (Type, Logical/Point, 
+                Parameter) (ex: (103, 1, 21)).
+            number_of_parameters (int): Number of parameters to request.
+
+        Returns:
+            TLPValues: Values object with value of the parameters requested.
+        """
+        # Parse starting TLP definition
+        if isinstance(starting_tlp, TLPInstance):
             point_type_number: int = starting_tlp.point_type.point_type_number
             logical_number: int = starting_tlp.logical_number
             starting_parameter_number: int = starting_tlp.parameter.parameter_number
-        elif len(args) == 4 or len(kwargs) == 4:
-            if len(args) == 4:
-                point_type_arg: int | Type[PointType] = args[0]
-                logical_number: int = args[1]
-                number_of_parameters: int = args[2]
-                starting_parameter_number: int = args[3]
-            elif len(kwargs) == 4:
-                point_type_arg: int | Type[PointType] = kwargs['point_type']
-                logical_number: int = kwargs['logical_number']
-                number_of_parameters: int = kwargs['number_of_parameters']
-                starting_parameter_number: int = kwargs['starting_parameter_number']
+        elif isinstance(starting_tlp, Tuple):
+            if all(isinstance(ele, int) for ele in starting_tlp):
+                point_type_number: int = starting_tlp[0]
+                logical_number: int = starting_tlp[1]
+                starting_parameter_number: int = starting_tlp[2]
             else:
-                raise ValueError('Invalid arguments.')
-
-            if isinstance(point_type_arg, int):
-                point_type_number: int = point_type_arg
-            elif issubclass(point_type_arg, PointType):
-                point_type_number: int = point_type_arg.point_type_number
-            else:
-                raise TypeError('Invalid arguments.')
-        else:
-            raise TypeError('Invalid arguments.')
-    
+                raise ROCDataError(f'Invalid types in TLP definition tuple: {[type(ele) for ele in starting_tlp]}')
+        
         # Make opcode request
         request_data = SinglePointParameterRequestData(
             point_type=point_type_number, 
@@ -491,6 +401,7 @@ class ROCPlusClient:
         response: Response[ResponseData] = await self.unary_opcode_request(request_data=request_data)
         data: SinglePointParameterData = self.validate_response(response_data=response.response_data, response_data_type=SinglePointParameterData)
         tlp_values: List[TLPValue] = self.get_named_values(data.values)
+        
         return TLPValues(values=tlp_values, timestamp=datetime.now())
 
 
@@ -736,11 +647,14 @@ class ROCPlusClient:
         self.logger.debug(f'Retrieving Opcode Table definition for table index {table_index}.')
         
         # Make opcode request
+        starting_tlp: TLPInstance = TLPInstance.from_integers(
+            point_type=PointTypes.CONFIGURABLE_OPCODE_TABLE.point_type_number,
+            logical_number=table_index,
+            parameter=1
+        )
         tlp_values: TLPValues = await self.read_contiguous_tlps(
-            point_type=PointTypes.CONFIGURABLE_OPCODE_TABLE, 
-            logical_number=table_index, 
-            number_of_parameters=44, 
-            starting_parameter_number=1
+            starting_tlp=starting_tlp, 
+            number_of_parameters=44
         )
 
         # Loop through returned values
@@ -816,11 +730,14 @@ class ROCPlusClient:
         point_type_name = f'HISTORY_SEGMENT_{segment_index}_POINT_CONFIGURATION'
         
         # Read contiguous parameters for config data
-        values: TLPValues = await self.read_contiguous_tlps(
-            point_type=PointTypes.get_point_type_by_name(point_type_name=point_type_name),
+        starting_tlp: TLPInstance = TLPInstance.from_integers(
+            point_type=PointTypes.get_point_type_by_name(point_type_name).point_type_number,
             logical_number=point_number,
-            number_of_parameters=5,
-            starting_parameter_number=0
+            parameter=0
+        )
+        values: TLPValues = await self.read_contiguous_tlps(
+            starting_tlp=starting_tlp,
+            number_of_parameters=5
         )
 
         # Generate TLP Instance from TLP integers for history log point
@@ -857,11 +774,14 @@ class ROCPlusClient:
             HistorySegmentConfiguration: History segment configuration model instance.
         """
         # Read contiguous parameters for config data
-        values: TLPValues = await self.read_contiguous_tlps(
-            point_type=PointTypes.HISTORY_SEGMENT_CONFIGURATION,
+        starting_tlp: TLPInstance = TLPInstance.from_integers(
+            point_type=PointTypes.HISTORY_SEGMENT_CONFIGURATION.point_type_number,
             logical_number=segment_index,
-            number_of_parameters=14,
-            starting_parameter_number=0
+            parameter=0
+        )
+        values: TLPValues = await self.read_contiguous_tlps(
+            starting_tlp=starting_tlp,
+            number_of_parameters=14
         )
 
         # Generate TLP Instance from TLP integers for user-weighting TLP, if needed
