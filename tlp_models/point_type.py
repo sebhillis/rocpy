@@ -1,8 +1,6 @@
-from pydantic import model_serializer
 from tlp_models.parameter import Parameter
-from enum import Enum
 from typing import Optional, Type, ClassVar
-from abc import ABC, abstractmethod
+from abc import ABC
 
 class ParameterNotFoundError(KeyError):
     pass

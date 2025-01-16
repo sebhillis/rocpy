@@ -166,7 +166,25 @@ class TLPValue(TLPInstance):
                 raise ValueError('Invalid Parameter definition provided.')
         else:
             raise ValueError('Input data must be valid dictionary.')
-        
+
+    @classmethod
+    def from_tlp_instance(
+        cls, 
+        tlp: TLPInstance, 
+        value: Any,
+        timestamp: datetime | None = None, 
+        bit_values: List[bool] = []
+    ) -> 'TLPValue':
+        if timestamp is None:
+            timestamp = datetime.now()
+        return TLPValue(
+            parameter=tlp.parameter,
+            point_type=tlp.point_type,
+            logical_number=tlp.logical_number,
+            value=value,
+            timestamp=timestamp,
+            bit_values=bit_values
+        )
 
 class TLPValues(BaseModel):
     """

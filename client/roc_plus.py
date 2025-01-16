@@ -7,7 +7,7 @@ from loguru import logger
 from pydantic import ValidationError, BaseModel
 from datetime import datetime
 import json
-from opcode_models.opcodes import SinglePointParameterData, SinglePointParameterRequestData
+from opcode_models.opcodes import AlarmDataData, AlarmDataRequestData, EventDataData, EventDataRequestData, SinglePointParameterData, SinglePointParameterRequestData, TodayYestMinMaxData, TodayYestMinMaxRequestData
 from client.models import *
 from opcode_models import *
 from client.exceptions import *
@@ -24,22 +24,38 @@ from tlp_models.point_types import PointTypeNotFoundError
 from tlp_models.tlp import TLPInstance, TLPValue, TLPValues
 from client.async_tcp_generic import TCPClient
 
-
 class ROCPlusClient:
     """
     ROC Plus Client/Driver for communicating with Emerson ROC800 and similar devices.
 
     Arguments passed to the constructor are validated via Pydantic model and may raise a ValidationError. The easiest
-        way to communicate with the device is to use it as an async context manager and then make individual Opcode requests
-        or use the methods encapsulating common Opcodes. It can also be used as a regular object instance, but connections
-        opened during method calls will NOT automatically be closed.
+    way to communicate with the device is to use the connect() method to create an async context manager and then make 
+    individual Opcode requests or use the methods encapsulating common Opcodes. It can also be used as a regular object 
+    instance, but connections opened during method calls will NOT automatically be closed.
 
-    Attributes:
-        roc_client_def (ROCClientDefinition): ROC client definition data model with validated IP, Port, etc.
-        io_definition (IODefinition): I/O definition of ROC device. Initialized as empty IODefinition object.
-        stream_reader (asyncio.StreamReader, optional): ROC Client TCP socket reader object. Initialized as None.
-        stream_writer (asyncio.StreamWriter, optional): ROC Client TCP socket writer object. Initialized None.
-        logger (loguru.Logger): Internal logger object.
+    Args:
+        ip (str): IP Address string for the ROC device connection.
+        port (int): Port number for the ROC device connection.
+        roc_address (int): ROC Address (sometimes called "Unit" in the docs).
+        roc_group (int): ROC Group.
+        host_address (int, optional): Host machine address. Does not affect ability to connect to device. Defaults to 1.
+        host_group (int, optional): Host group. Does not affect ability to connect to device. Defaults to 0.
+
+    Raises:
+        ROCConfigError: _description_
+
+    Example:
+        ```
+        # Option 1 - async context manager
+        with ROCPlusClient('192.168.1.1', 10001, 1, 2).connect() as client:
+            response = client.make_opcode_request(SystemConfigRequestData()) 
+
+
+        # Option 2 - normal class isntance, manual connection close
+        client = ROCPlusClient('192.168.1.1', 10001, 1, 2)
+        response = client.make_opcode_request(SystemConfigRequestData())
+        await client.close_connection()
+        ```
     """
 
     def __init__(
@@ -63,14 +79,52 @@ class ROCPlusClient:
         except ValidationError as e:
             raise ROCConfigError('Failed to validate ROC config.') from e
         
-        self.io_definition = IODefinition()
-        self.configurable_opcode_tables_definition = ConfigurableOpcodeTablesDefinition()
-        self.history_definition = HistoryDefinition()
+        self.io_definition: IODefinition = IODefinition()
+        """
+        I/O definition object which describes each I/O point including point type, point tag ID, etc. 
+            Initializes to empty model instance.
+        """
+
+        self.configurable_opcode_tables_definition: ConfigurableOpcodeTablesDefinition = ConfigurableOpcodeTablesDefinition()
+        """
+        User Opcode Table definition object which describes each User Opcode Table TLP mapping.
+            Initializes to empty model instance.
+        """
+
+        self.history_definition: HistoryDefinition = HistoryDefinition()
+        """
+        History definition object which describes each History Segment configuration and History Segment
+            Point configuration. Initializes to empty model instance.
+        """
+
         self.system_config: SystemConfigData | None = None
-        self._connection = TCPClient(ip=str(self.roc_client_def.ip), port=self.roc_client_def.port)
-        self.is_async_context_manager = False
+        """
+        ROC System Config object which contains device-level configuration data like device type, etc.
+            Initializes to None.
+        """
+
+        self._connection: TCPClient = TCPClient(
+            ip=str(self.roc_client_def.ip), 
+            port=self.roc_client_def.port
+        )
+        """
+        Underlying TCPClient instance that handles raw TCP communication through delegated method calls.
+        """
+        
+        self.is_async_context_manager: bool = False
+        """
+        Internal flag to track if the client is currently being used within an async context manager or not.
+        """
+
         self._active_request: bool = False
+        """
+        Internal flag to track if a request to the device is actively being processed.
+        """
+
         self.logger = logger
+        """
+        Internal logger instance.
+        """
 
 
     def __str__(self) -> str:
@@ -91,16 +145,19 @@ class ROCPlusClient:
         Args:
             initialize_io (bool, optional): If True, will upload I/O configuration on connect. Defaults to False.
 
-        Raises:
-            e: Re-raises any error encountered while opening connection.
-
         Yields:
             ROCPlusClient: ROCPlusClient with active, connected TCP socket to ROC device.
+
+        Example:
+            ```
+            with ROCPlusClient('192.168.1.1', 10001, 1, 2).connect() as client:
+                print(client.roc_client_def.ip)
+            ```
         """
         try:
             self.logger.debug('Opening connection within async context manager...')
             self.is_async_context_manager = True
-            await self._connection.open_connection()
+            await self.open_connection()
             self.logger.debug('Connected successfully.')
             if init_io_def:
                 self.logger.debug('Reading I/O definition.')
@@ -127,7 +184,7 @@ class ROCPlusClient:
             self.is_async_context_manager = False
             try:
                 self.logger.debug('Closing connection...')
-                await self._connection.close_connection()
+                await self.close_connection()
                 self.logger.debug('Connection closed successfully.')
             except ROCOperationTimeout:
                 self.logger.warning('Timed out waiting for connection to close.')
@@ -135,6 +192,16 @@ class ROCPlusClient:
             finally:
                 self.logger.debug('Async context manager exited.')
 
+
+
+    async def open_connection(self) -> None:
+        await self._connection.open_connection()
+        return
+    
+
+    async def close_connection(self) -> None:
+        await self._connection.close_connection()
+        return
 
 
     def get_opcode_device_data(self) -> DeviceData:
@@ -156,7 +223,7 @@ class ROCPlusClient:
     
 
 
-    async def unary_opcode_request(self, request_data: RequestData) -> Response[ResponseData]:
+    async def make_opcode_request(self, request_data: RequestData) -> Response[ResponseData]:
         """
         Send a single Opcode request and get response.
 
@@ -165,9 +232,6 @@ class ROCPlusClient:
         request_data argument, a SystemConfigResponseData instance will be 
         returned.
 
-        If not being used with an async context manager, the connection will be closed 
-        after the response data is returned by the connection or an exception is raised.
-
         Args:
             request_data (RequestData): Instance of RequestData for specific Opcode request.
 
@@ -175,12 +239,12 @@ class ROCPlusClient:
             Response[ResponseData]: Response model instance.
 
         Example:
-            >>> client = ROCPlusClient(ip='192.168.1.1', port=10001, roc_address=1, roc_group=2)
-            >>> await client.connect()
-            >>> request_data = SystemConfigRequestData()
-            >>> response = await client.unary_opcode_request(request_data)
-            >>> print(type(response.response_data))
-            <class 'opcode_models.opcodes.SystemConfigResponseData'>
+            ```
+            with ROCPlusClient('192.168.1.1', 10001, 1, 2).connect() as client:
+                request_data = SystemConfigRequestData()
+                response: SystemConfigResponseData = await client.make_opcode_request(request_data)
+                print(response)
+            ```
         """
         try:
             self.logger.debug('Making opcode request.')
@@ -208,12 +272,9 @@ class ROCPlusClient:
             self.logger.debug('Response decoded successfully. Returning response object.')
             return response
         except ValidationError as e:
-            raise ROCDataError('Request and/or response data failed validation.')
+            raise ROCDataError(f'Request and/or response data failed validation: {e}')
         finally:
             self._active_request = False
-            if not self.is_async_context_manager:
-                await self._connection.close_connection()
-    
 
 
     TResp = TypeVar('TResp', bound=BaseModel)
@@ -272,6 +333,21 @@ class ROCPlusClient:
 
         Returns:
             TLPValue: TLP Value object.
+
+        Example:
+            ```
+            with ROCPlusClient('192.168.1.1', 10001, 1, 2).connect() as client:
+                tlp_def = TLPInstance(
+                    parameter=PointTypes.ANALOG_INPUT.Parameters.EU_VALUE, 
+                    logical_number=1
+                )
+                tlp_value: TLPValue = await client.read_tlp(tlp_def)
+                print(tlp_value.value)
+
+                tlp_def = (103, 1, 21)
+                tlp_value: TLPValue = await client.read_tlp(tlp_def)
+                print(tlp_value.value)
+            ```
         """
         # Parse TLP definitions
         if isinstance(tlp_def, TLPInstance):
@@ -288,10 +364,10 @@ class ROCPlusClient:
         
         # Make opcode request
         request_data = ParameterRequestData(tlps=[tlp_def])
-        response: Response[ResponseData] = await self.unary_opcode_request(request_data=request_data)
+        response: Response[ResponseData] = await self.make_opcode_request(request_data=request_data)
         data: ParameterData = self.validate_response(response_data=response.response_data, response_data_type=ParameterData)
         tlp_values: List[TLPValue] = self.get_named_values(data.values)
-        
+
         return tlp_values[0]
         
 
@@ -315,6 +391,27 @@ class ROCPlusClient:
 
         Returns:
             List[TLPValue]: A list of TLP value objects.
+
+        Example:
+            ```
+            with ROCPlusClient('192.168.1.1', 10001, 1, 2).connect() as client:
+                tlp_defs = [
+                    TLPInstance(
+                        parameter=PointTypes.ANALOG_INPUT.Parameters.EU_VALUE, 
+                        logical_number=1
+                    ),
+                    TLPInstance(
+                        parameter=PointTypes.ANALOG_INPUT.Parameters.EU_VALUE,
+                        logical_number=2
+                    )
+                ]
+                tlp_values: TLPValues = await client.read_tlp(tlp_defs)
+                print(tlp_values.values[1].value)
+
+                tlp_def = [(103, 1, 21), (103, 2, 21)]
+                tlp_values: TLPValues = await client.read_tlp(tlp_defs)
+                print(tlp_values.values[1].value)
+            ```
         """
         # Parse TLP definitions
         tlps: List[TLPInstance] = []
@@ -335,7 +432,7 @@ class ROCPlusClient:
     
         # Make opcode request
         request_data = ParameterRequestData(tlps=tlps)
-        response: Response[ResponseData] = await self.unary_opcode_request(request_data=request_data)
+        response: Response[ResponseData] = await self.make_opcode_request(request_data=request_data)
         data: ParameterData = self.validate_response(response_data=response.response_data, response_data_type=ParameterData)
         tlp_values: List[TLPValue] = self.get_named_values(data.values)
         return TLPValues(values=tlp_values, timestamp=datetime.now())
@@ -377,6 +474,23 @@ class ROCPlusClient:
 
         Returns:
             TLPValues: Values object with value of the parameters requested.
+
+        Example:
+            ```
+            with ROCPlusClient('192.168.1.1', 10001, 1, 2).connect() as client:
+                starting_tlp = TLPInstance(
+                    parameter=PointTypes.ANALOG_INPUT.Parameters.EU_VALUE, 
+                    logical_number=1
+                )
+                number_of_parameters = 5
+                tlp_values: TLPValues = await client.read_contiguous_tlps(starting_tlp, number_of_parameters)
+                print(tlp_values.values[4].value) # Value of TLP (103, 5, 21)
+
+                starting_tlp = TLPInstance(103, 1, 21)
+                number_of_parameters = 5
+                tlp_values: TLPValues = await client.read_contiguous_tlps(starting_tlp, number_of_parameters)
+                print(tlp_values.values[4].value) # Value of TLP (103, 5, 21)
+            ```
         """
         # Parse starting TLP definition
         if isinstance(starting_tlp, TLPInstance):
@@ -398,7 +512,7 @@ class ROCPlusClient:
             number_of_parameters=number_of_parameters, 
             starting_parameter_number=starting_parameter_number
         )
-        response: Response[ResponseData] = await self.unary_opcode_request(request_data=request_data)
+        response: Response[ResponseData] = await self.make_opcode_request(request_data=request_data)
         data: SinglePointParameterData = self.validate_response(response_data=response.response_data, response_data_type=SinglePointParameterData)
         tlp_values: List[TLPValue] = self.get_named_values(data.values)
         
@@ -424,7 +538,7 @@ class ROCPlusClient:
                 self.logger.debug('Constructing TLP request.')
                 request_data = ParameterRequestData(tlps=[tlp_def])
                 self.logger.debug('Submitting TLP Opcode request.')
-                response: Response[ResponseData] = await self.unary_opcode_request(request_data=request_data)
+                response: Response[ResponseData] = await self.make_opcode_request(request_data=request_data)
                 self.logger.debug('Validating Opcode response.')
                 data: ParameterData = self.validate_response(response_data=response.response_data, response_data_type=ParameterData)
                 self.logger.debug('Yielding response data.')
@@ -446,7 +560,7 @@ class ROCPlusClient:
                 self.logger.debug('Constructing TLP request.')
                 request_data = ParameterRequestData(tlps=tlp_defs)
                 self.logger.debug('Submitting TLP Opcode request.')
-                response: Response = await self.unary_opcode_request(request_data=request_data)
+                response: Response = await self.make_opcode_request(request_data=request_data)
                 self.logger.debug('Validating Opcode response.')
                 data: ParameterData = self.validate_response(response_data=response.response_data, response_data_type=ParameterData)
                 self.logger.debug('Yielding response data.')
@@ -488,7 +602,7 @@ class ROCPlusClient:
             Response[SystemConfigResponseData]: System Configuration opcode response object.
         """
         request_data = SystemConfigRequestData()
-        response: Response[ResponseData] = await self.unary_opcode_request(request_data=request_data)
+        response: Response[ResponseData] = await self.make_opcode_request(request_data=request_data)
         if response.response_data.data:
             if isinstance(response.response_data, SystemConfigResponseData):
                 if store_internally:
@@ -513,7 +627,7 @@ class ROCPlusClient:
         self.logger.debug('Clock time requested. Constructing request.')
         request_data = ReadClockRequestData()
         self.logger.debug('Submitting Opcode request.')
-        response: Response[ResponseData]= await self.unary_opcode_request(request_data=request_data)
+        response: Response[ResponseData]= await self.make_opcode_request(request_data=request_data)
         self.logger.debug('Validating Opcode response.')
         data: ReadClockData = self.validate_response(response_data=response.response_data, response_data_type=ReadClockData)
         self.logger.debug('Converting to datetime and returning.')
@@ -531,7 +645,7 @@ class ROCPlusClient:
         self.logger.debug('Requesting I/O Logical Numbers.')
         request_data = IOLocationRequestData(request_type=IOLocationRequestType.LOGICAL_NUMBER)
         self.logger.debug('Submitting Opcode request.')
-        response: Response = await self.unary_opcode_request(request_data=request_data)
+        response: Response = await self.make_opcode_request(request_data=request_data)
         self.logger.debug('Validating Opcode response.')
         validated_response: IOLocationData = self.validate_response(response_data=response.response_data, response_data_type=IOLocationData)
         self.io_definition._logical_numbers_uploaded = True
@@ -549,7 +663,7 @@ class ROCPlusClient:
         self.logger.debug('Requesting I/O Point Types.')
         request_data = IOLocationRequestData(request_type=IOLocationRequestType.IO_POINT_TYPE)
         self.logger.debug('Submitting Opcode request.')
-        response: Response = await self.unary_opcode_request(request_data=request_data)
+        response: Response = await self.make_opcode_request(request_data=request_data)
         self.logger.debug('Validating Opcode response.')
         validated_response: IOLocationData = self.validate_response(response_data=response.response_data, response_data_type=IOLocationData)
         self.io_definition._point_types_uploaded = True
@@ -896,3 +1010,53 @@ class ROCPlusClient:
         config_json: str = json.dumps(config_list, indent=2)
         
         return config_json
+    
+
+    async def get_history_today_yesterday_min_max(self, history_segment: int, history_point: int) -> TodayYestMinMaxData:
+        """
+        Retrieve the minimum and maximum values from today and yesterday for a history segment and point.
+
+        Returns:
+            TodayYestMinMaxData: Model instance with all data returned by Opcode 105 request.
+        """
+        self.logger.debug('History min/max today/yesterday values requested. Constructing request.')
+        request_data = TodayYestMinMaxRequestData(history_segment=history_segment, history_point=history_point)
+        self.logger.debug('Submitting Opcode request.')
+        response: Response[ResponseData]= await self.make_opcode_request(request_data=request_data)
+        self.logger.debug('Validating Opcode response.')
+        data: TodayYestMinMaxData = self.validate_response(response_data=response.response_data, response_data_type=TodayYestMinMaxData)
+        return data
+    
+    async def get_alarm_data(self, start_alarm_log_index: int, number_of_alarms: int) -> AlarmDataData:
+        """
+        Retrieve alarm records from alarm log.
+
+        Returns:
+            AlarmDataData: Model instance with all data returned by Opcode 118 request.
+        """
+        self.logger.debug('Alarm data requested. Constructing request.')
+        if number_of_alarms > 10:
+            raise ValueError('A maximum of 10 alarm records can be requested at a time.')
+        request_data = AlarmDataRequestData(number_of_alarms=number_of_alarms, starting_alarm_log_index=start_alarm_log_index)
+        self.logger.debug('Submitting Opcode request.')
+        response: Response[ResponseData]= await self.make_opcode_request(request_data=request_data)
+        self.logger.debug('Validating Opcode response.')
+        data: AlarmDataData = self.validate_response(response_data=response.response_data, response_data_type=AlarmDataData)
+        return data
+    
+    async def get_event_data(self, start_event_log_index: int, number_of_events: int) -> EventDataData:
+        """
+        Retrieve event records from event log.
+
+        Returns:
+            EventDataData: Model instance with all data returned by Opcode 119 request.
+        """
+        self.logger.debug('Event data requested. Constructing request.')
+        if number_of_events > 10:
+            raise ValueError('A maximum of 10 event records can be requested at a time.')
+        request_data = EventDataRequestData(number_of_events=number_of_events, starting_event_log_index=start_event_log_index)
+        self.logger.debug('Submitting Opcode request.')
+        response: Response[ResponseData]= await self.make_opcode_request(request_data=request_data)
+        self.logger.debug('Validating Opcode response.')
+        data: EventDataData = self.validate_response(response_data=response.response_data, response_data_type=EventDataData)
+        return data

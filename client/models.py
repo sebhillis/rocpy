@@ -9,6 +9,7 @@ from tlp_models.point_types import PointTypes
 from tlp_models.parameter import Parameter
 from tlp_models.tlp import TLPInstance
 from client.exceptions import *
+from enums import HistoryArchiveType, HistoryAveragingRateType
 
 class ROCClientDefinition(BaseModel):
     """
@@ -306,36 +307,6 @@ class ConfigurableOpcodeTablesDefinition:
         for index, segment in self.configurable_opcode_table_map.items():
             self_dict['user_opcode_table_definition'][index] = segment.model_dump()
         return self_dict
-
-
-class ArchiveType(Enum):
-    HISTORY_POINT_NOT_DEFINED = 0
-    USER_C_DATA = 1
-    USER_C_TIME = 2
-    FST_DATA_HISTORY = 65
-    FST_TIME = 67
-    AVERAGE = 128
-    ACCUMULATE = 129
-    CURRENT_VALUE = 130
-    TOTALIZE = 134
-
-
-class AveragingRateType(Enum):
-
-    # Averaging Types
-    NONE = 0
-    FLOW_DEPENDENT_TIME_WEIGHTED_LINEAR = 1
-    FLOW_DEPENDENT_TIME_WEIGHTED_FORMULAIC = 2
-    FLOW_WEIGHTED_LINEAR = 3
-    FLOW_WEIGHTED_FORMULAIC = 4
-    LINEAR_AVERAGING = 5
-    USER_WEIGHTED_AVERAGING = 6
-    
-    # Accumulation Rates
-    PER_SECOND = 10
-    PER_MINUTE = 11
-    PER_HOUR = 12
-    PER_DAY = 13
     
 
 class HistorySegmentPointConfiguration(BaseModel):
@@ -352,30 +323,30 @@ class HistorySegmentPointConfiguration(BaseModel):
     history_log_point: TLPInstance | None
     """TLPInstance object pointing to the value which is to be archived by history."""
 
-    archive_type: Annotated[ArchiveType, PlainSerializer(lambda x: {'name': x.name, 'value': x.value}, return_type=dict, when_used='always')]
+    archive_type: Annotated[HistoryArchiveType, PlainSerializer(lambda x: {'name': x.name, 'value': x.value}, return_type=dict, when_used='always')]
     """Defines how the system archives a data point to history."""
 
-    averaging_rate_type: Annotated[AveragingRateType, PlainSerializer(lambda x: {'name': x.name, 'value': x.value}, return_type=dict, when_used='always')]
+    averaging_rate_type: Annotated[HistoryAveragingRateType, PlainSerializer(lambda x: {'name': x.name, 'value': x.value}, return_type=dict, when_used='always')]
     """The rate of accumulation or averaging technique."""
 
 
     @field_validator('archive_type', mode='before')
     @classmethod
-    def validate_archive_type(cls, v, info: ValidationInfo) -> ArchiveType:
-        if isinstance(v, ArchiveType):
+    def validate_archive_type(cls, v, info: ValidationInfo) -> HistoryArchiveType:
+        if isinstance(v, HistoryArchiveType):
             return v
         elif isinstance(v, int):
-            return ArchiveType(v)
+            return HistoryArchiveType(v)
         else:
             raise ValueError('Expected integer or ArchiveType enum for archive type.')
         
     @field_validator('averaging_rate_type', mode='before')
     @classmethod
-    def validate_averaging_rate_type(cls, v, info: ValidationInfo) -> AveragingRateType:
-        if isinstance(v, AveragingRateType):
+    def validate_averaging_rate_type(cls, v, info: ValidationInfo) -> HistoryAveragingRateType:
+        if isinstance(v, HistoryAveragingRateType):
             return v
         elif isinstance(v, int):
-            return AveragingRateType(v)
+            return HistoryAveragingRateType(v)
         else:
             raise ValueError('Expected integer or AveragingRateType enum for averaging/rate type.')
 

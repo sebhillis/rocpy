@@ -31,8 +31,13 @@ class ROCDataType(BaseModel):
 class ParameterDataTypes:
     BIN = ROCDataType(data_type_name='BIN', format_string='B', py_type=int)
     AC = ROCDataType(data_type_name='AC', format_string='10s', py_type=str)
+    AC3 = ROCDataType(data_type_name='AC3', format_string='3s', py_type=str)
+    AC7 = ROCDataType(data_type_name='AC7', format_string='7s', py_type=str)
+    AC10 = ROCDataType(data_type_name='AC10', format_string='10s', py_type=str)
     AC12 = ROCDataType(data_type_name='AC12', format_string='12s', py_type=str)
     AC20 = ROCDataType(data_type_name='AC20', format_string='20s', py_type=str)
+    AC30 = ROCDataType(data_type_name='AC30', format_string='30s', py_type=str)
+    AC40 = ROCDataType(data_type_name='AC40', format_string='40s', py_type=str)
     INT8 = ROCDataType(data_type_name='INT8', format_string='b', py_type=int)
     INT16 = ROCDataType(data_type_name='INT16', format_string='h', py_type=int)
     INT32 = ROCDataType(data_type_name='INT32', format_string='i', py_type=int)

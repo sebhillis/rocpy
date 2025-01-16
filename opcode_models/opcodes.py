@@ -10,6 +10,16 @@ from tlp_models.tlp import TLPInstance, TLPValue
 from tlp_models.point_type import PointType
 from tlp_models.point_types import PointTypes
 from tlp_models.parameter import Parameter
+from enums import (
+    HistoryArchiveType,
+    ROCOperatingMode,
+    ROCSubType,
+    ROCType,
+    OpcodeRevision,
+    LogicalCompatibilityStatus
+)
+from alarm_models import AlarmTypes
+from event_models import EventTypes
 
 class DeviceData(BaseModel):
 
@@ -137,33 +147,6 @@ class SystemConfigRequestData(RequestData):
     @property
     def data_binary(self) -> bytes:
         return b''
-
-
-class ROCOperatingMode(Enum):
-    FIRMWARE_UPDATE_MODE = 0
-    RUN_MODE = 1
-
-class LogicalCompatibilityStatus(Enum):
-    _16_POINTS_PER_SLOT_9_SLOTS_MAX = 0
-    _16_POINTS_PER_SLOT_14_SLOTS_MAX = 1
-    _8_POINTS_PER_SLOT_27_SLOTS_MAX = 2
-
-class OpcodeRevision(Enum):
-    ORIGINAL = 0
-    EXTENDED_FOR_ADDITIONAL_POINT_TYPES = 1
-
-class ROCSubType(Enum):
-    SERIES_2 = 0
-    SERIES_1 = 1
-
-class ROCType(Enum):
-    ROCPAC_ROC300_SERIES = 1
-    FLO_BOSS_407 = 2
-    FLASHPAC_ROC300_SERIES = 3
-    FLO_BOSS_503 = 4
-    FLO_BOSS_504 = 5
-    ROC_800 = 6
-    DL_800 = 11
 
 
 class SystemConfigData(BaseModel):
@@ -329,7 +312,7 @@ class OpcodeTableResponseData(ResponseData[OpcodeTableData]):
     data: Optional[OpcodeTableData] = None
 
     @classmethod
-    def data_from_binary(cls, raw_response):
+    def data_from_binary(cls, raw_response) -> OpcodeTableData:
         return super().data_from_binary(raw_response)
 
 
@@ -372,6 +355,375 @@ class IOLocationResponseData(ResponseData[IOLocationData]):
         for location, data in enumerate(data_bytes):
             location_data[location] = data
         return IOLocationData(location_data=location_data)
+
+
+
+
+
+"""Opcode 105: Request Today's and Yesterday's Min/Max Values"""
+
+class TodayYestMinMaxRequestData(RequestData):
+
+    opcode: int = 105
+
+    history_segment: int
+
+    history_point: int
+
+    @property
+    def data_binary(self) -> bytes:
+        data: bytes = struct.pack(
+            'BB',
+            self.history_segment,
+            self.history_point
+        )
+        return data
+
+class TodayYestMinMaxData(BaseModel):
+
+    history_segment: int
+    """History Segment (0-10)."""
+
+    history_point: int
+    """History point number."""
+
+    history_archive_method: Annotated[
+        HistoryArchiveType, 
+        PlainSerializer(lambda x: {'name': x.name, 'value': x.value}, 
+                        return_type=dict, 
+                        when_used='always'
+        )
+    ]
+    """Historical archival method type."""
+
+    history_point_tlp: TLPInstance
+    """TLP definition for history point."""
+
+    current_value: TLPValue
+    """Current value of history point TLP."""
+
+    min_value_today: TLPValue
+    """Minimum value since contract hour."""
+
+    max_value_today: TLPValue
+    """Maximum value since contract hour."""
+
+    min_value_yesterday: TLPValue
+    """Minimum value yesterday."""
+
+    max_value_yesterday: TLPValue
+    """Maximum value yesterday."""
+
+    last_period_value: TLPValue
+    """Value during last completed period."""
+
+
+class TodayYestMinMaxResponseData(ResponseData[TodayYestMinMaxData]):
+    """
+    Parameter request response data meta-model.
+    """
+    
+    data: Optional[TodayYestMinMaxData] = None
+
+    @classmethod
+    def data_from_binary(cls, raw_response: bytes) -> TodayYestMinMaxData:
+        
+        def time_tuple_to_datetime(time_tuple: tuple[int, int, int, int, int]) -> datetime:
+            return datetime(
+                year=datetime.now().year,
+                month=time_tuple[4],
+                day=time_tuple[3],
+                hour=time_tuple[2],
+                minute=time_tuple[1],
+                second=time_tuple[0]
+            )
+        
+        # Unpack data
+        data_length: int = int(raw_response[5])
+        response_data: bytes = raw_response[6:6 + data_length]
+        history_segment: int = response_data[0]
+        history_point: int = response_data[1]
+        history_archive_method: int = response_data[2]
+        point_type: int = response_data[3]
+        logical_number: int = response_data[4]
+        parameter: int = response_data[5]
+        current_value: float = struct.unpack('<f', response_data[6:10])[0]
+        min_today: float = struct.unpack('<f', response_data[10:14])[0]
+        max_today: float = struct.unpack('<f', response_data[14:18])[0]
+        min_today_time_tuple: tuple[int, int, int, int, int] = struct.unpack('BBBBB', response_data[18:23])
+        max_today_time_tuple: tuple[int, int, int, int, int] = struct.unpack('BBBBB', response_data[23:28])
+        min_yesterday: float = struct.unpack('<f', response_data[28:32])[0]
+        max_yesterday: float = struct.unpack('<f', response_data[32:36])[0]
+        min_yest_time_tuple: tuple[int, int, int, int, int] = struct.unpack('BBBBB', response_data[36:41])
+        max_yest_time_tuple: tuple[int, int, int, int, int] = struct.unpack('BBBBB', response_data[41:46])
+        last_value: float = struct.unpack('<f', response_data[46:50])[0]
+        
+        # Convert some of the values into tidier objects
+        history_tlp: TLPInstance = TLPInstance.from_integers(
+            point_type=point_type, 
+            logical_number=logical_number, 
+            parameter=parameter
+        )
+        min_today_obj: TLPValue = TLPValue.from_tlp_instance(
+            tlp=history_tlp,
+            value=min_today,
+            timestamp=time_tuple_to_datetime(min_today_time_tuple)
+        )
+        max_today_obj: TLPValue = TLPValue.from_tlp_instance(
+            tlp=history_tlp,
+            value=max_today,
+            timestamp=time_tuple_to_datetime(max_today_time_tuple)
+        )
+        min_yesterday_obj: TLPValue = TLPValue.from_tlp_instance(
+            tlp=history_tlp,
+            value=min_yesterday,
+            timestamp=time_tuple_to_datetime(min_yest_time_tuple)
+        )
+        max_yesterday_obj: TLPValue = TLPValue.from_tlp_instance(
+            tlp=history_tlp,
+            value=max_yesterday,
+            timestamp=time_tuple_to_datetime(max_yest_time_tuple)
+        )
+        current_value_obj: TLPValue = TLPValue.from_tlp_instance(
+            tlp=history_tlp,
+            value=current_value
+        )
+        last_period_value_obj: TLPValue = TLPValue.from_tlp_instance(
+            tlp=history_tlp,
+            value=last_value
+        )
+
+        return TodayYestMinMaxData(
+            history_segment=history_segment,
+            history_point=history_point,
+            history_archive_method=HistoryArchiveType(history_archive_method),
+            history_point_tlp=history_tlp,
+            current_value=current_value_obj,
+            min_value_today=min_today_obj,
+            max_value_today=max_today_obj,
+            min_value_yesterday=min_yesterday_obj,
+            max_value_yesterday=max_yesterday_obj,
+            last_period_value=last_period_value_obj
+        )
+
+
+
+
+"""Opcode 108: Request History Tag and Periodic Index"""
+
+class HistoryTagPeriodIndexRequestData(RequestData):
+
+    opcode: int = 108
+
+    history_segment: int
+
+    history_points: List[int]
+
+    @property
+    def data_binary(self) -> bytes:
+        data: bytes = struct.pack(
+            'BB',
+            self.history_segment,
+            len(self.history_points)
+        )
+        for point in self.history_points:
+            data += struct.pack('B', point)
+        return data
+
+
+class HistoryTagPeriodIndexData(BaseModel):
+
+    history_segment: int
+    """History Segment (0-10)."""
+
+    number_of_history_points: int
+    """Number of history points defined."""
+
+    periodic_index: int
+    """Periodic index, common to all history points in segment."""
+
+    tag_names: Dict[int, str]
+    """Tag names for each of the defined history points, indexed by point number."""
+
+
+class HistoryTagPeriodIndexResponseData(ResponseData[HistoryTagPeriodIndexData]):
+    """
+    Parameter request response data meta-model.
+    """
+    
+    data: Optional[HistoryTagPeriodIndexData] = None
+
+    @classmethod
+    def data_from_binary(cls, raw_response: bytes) -> HistoryTagPeriodIndexData:
+        
+        # Unpack data
+        data_length: int = int(raw_response[5])
+        response_data: bytes = raw_response[6:6 + data_length]
+        history_segment: int = response_data[0]
+        number_of_points: int = response_data[1]
+        periodic_index: int = struct.unpack('<h', response_data[2:4])[0]
+
+        # Extract point data iteratively
+        point_data: bytes = response_data[4:]
+        tag_names: Dict[int, str] = {}
+        start_index: int = 0
+        for _ in range(number_of_points):
+            point_number: int = point_data[start_index]
+            tag_name: str = struct.unpack('<10s', point_data[start_index + 1:start_index + 11])[0]
+            tag_names[point_number] = tag_name
+            start_index += 11
+
+        return HistoryTagPeriodIndexData(
+            history_segment=history_segment,
+            number_of_history_points=number_of_points,
+            periodic_index=periodic_index,
+            tag_names=tag_names
+        )
+
+
+
+
+"""Opcode 118: Request Alarm Data"""
+
+class AlarmDataRequestData(RequestData):
+
+    opcode: int = 118
+
+    number_of_alarms: int
+
+    starting_alarm_log_index: int
+
+    @property
+    def data_binary(self) -> bytes:
+        data: bytes = struct.pack(
+            'B',
+            self.number_of_alarms
+        )
+        data += struct.pack(
+            '<h',
+            self.starting_alarm_log_index
+        )
+        return data
+
+
+class AlarmDataData(BaseModel):
+
+    number_of_alarms: int
+
+    starting_alarm_log_index: int
+
+    current_alarm_log_index: int
+
+    alarm_data: List[AlarmTypes.AlarmT]
+    
+
+
+class AlarmDataResponseData(ResponseData[AlarmDataData]):
+    """
+    Parameter request response data meta-model.
+    """
+    
+    data: Optional[AlarmDataData] = None
+
+    @classmethod
+    def data_from_binary(cls, raw_response: bytes) -> AlarmDataData:
+        
+        # Unpack data
+        data_length: int = int(raw_response[5])
+        response_data: bytes = raw_response[6:6 + data_length]
+        number_of_alarms: int = response_data[0]
+        starting_alarm_log_index: int = struct.unpack('<h', response_data[1:3])[0]
+        current_alarm_log_index: int = struct.unpack('<h', response_data[3:5])[0]
+
+        # Extract alarm data iteratively
+        alarm_data: bytes = response_data[5:]
+        alarms: List[AlarmTypes.AlarmT] = []
+        start_index: int = 0
+        for _ in range(number_of_alarms):
+            this_alarm_data: bytes = alarm_data[start_index:start_index + 23]
+            alarm_obj: AlarmTypes.AlarmT = AlarmTypes.get_alarm_from_binary(data=this_alarm_data)
+            alarms.append(alarm_obj)
+            start_index += 23
+
+        return AlarmDataData(
+            number_of_alarms=number_of_alarms,
+            starting_alarm_log_index=starting_alarm_log_index,
+            current_alarm_log_index=current_alarm_log_index,
+            alarm_data=alarms
+        )
+
+
+
+
+"""Opcode 119: Request Event Data"""
+
+class EventDataRequestData(RequestData):
+
+    opcode: int = 119
+
+    number_of_events: int
+
+    starting_event_log_index: int
+
+    @property
+    def data_binary(self) -> bytes:
+        data: bytes = struct.pack(
+            'B',
+            self.number_of_events
+        )
+        data += struct.pack(
+            '<h', 
+            self.starting_event_log_index
+        )
+        return data
+
+
+
+class EventDataData(BaseModel):
+
+    number_of_events: int
+
+    start_event_log_index: int
+
+    current_event_log_index: int
+
+    event_data: List[EventTypes.EventT]
+
+
+
+class EventDataResponseData(ResponseData[EventDataData]):
+    """
+    Parameter request response data meta-model.
+    """
+    
+    data: Optional[EventDataData] = None
+
+    @classmethod
+    def data_from_binary(cls, raw_response: bytes) -> EventDataData:
+        
+        # Unpack data
+        data_length: int = int(raw_response[5])
+        response_data: bytes = raw_response[6:6 + data_length]
+        number_of_events: int = response_data[0]
+        starting_event_log_index: int = struct.unpack('<h', response_data[1:3])[0]
+        current_event_log_index: int = struct.unpack('<h', response_data[3:5])[0]
+
+        # Extract event data iteratively
+        event_data: bytes = response_data[5:]
+        events: List[EventTypes.EventT] = []
+        start_index: int = 0
+        for _ in range(number_of_events):
+            this_event_data: bytes = event_data[start_index:start_index + 22]
+            event: EventTypes.EventT = EventTypes.get_event_from_binary(data=this_event_data)
+            events.append(event)
+            start_index += 22
+
+        return EventDataData(
+            number_of_events=number_of_events,
+            start_event_log_index=starting_event_log_index,
+            current_event_log_index=current_event_log_index,
+            event_data=events
+        )
 
 
 
@@ -610,6 +962,18 @@ class MessageModels:
     _6 = MessageModel(request_data=SystemConfigRequestData, response_data=SystemConfigResponseData, opcode_desc='System Configuration')
     _7 = MessageModel(request_data=ReadClockRequestData, response_data=ReadClockResponseData, opcode_desc='Read Real-time Clock')
     _50 = MessageModel(request_data=IOLocationRequestData, response_data=IOLocationResponseData, opcode_desc='Request I/O Point Position')
+    _105 = MessageModel(
+        request_data=TodayYestMinMaxRequestData, 
+        response_data=TodayYestMinMaxResponseData, 
+        opcode_desc='Request Today and Yesterday Min/Max Values'
+    )
+    _108 = MessageModel(
+        request_data=HistoryTagPeriodIndexRequestData, 
+        response_data=HistoryTagPeriodIndexResponseData, 
+        opcode_desc='Request History Tag and Periodic Index'
+    )
+    _118 = MessageModel(request_data=AlarmDataRequestData, response_data=AlarmDataResponseData, opcode_desc='Request Alarm Data')
+    _119 = MessageModel(request_data=EventDataRequestData, response_data=EventDataResponseData, opcode_desc='Request Event Data')
     _167 = MessageModel(
         request_data=SinglePointParameterRequestData, 
         response_data=SinglePointParameterResponseData, 
