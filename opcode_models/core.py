@@ -74,11 +74,11 @@ class Response(BaseModel, Generic[T]):
     response_data: T
 
     @classmethod
-    def from_binary(cls, raw_response: bytes) -> 'Response':
+    def from_binary(cls, raw_response: bytes, request_data: RequestData) -> 'Response':
         device_data: DeviceData = DeviceData.response_from_binary(raw_response=raw_response)
         opcode: int = int(raw_response[4])
         opcode_model: MessageModel = MessageModels.get_model_by_opcode(opcode=opcode)
-        response_data: ResponseData = opcode_model.response_data.from_binary(raw_response=raw_response)
+        response_data: ResponseData = opcode_model.response_data.from_binary(raw_response=raw_response, request_data=request_data)
         return Response(device_data=device_data, response_data=response_data)
     
     @field_serializer('response_data', when_used='always')

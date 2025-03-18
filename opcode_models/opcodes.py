@@ -1,22 +1,30 @@
-from typing import Type, List, Optional, Dict, Any, TypeVar, Generic
+import opcode
+from typing import Type, List, Optional, Dict, Any, TypeVar, Generic, overload, Union
 import struct
 from datetime import datetime
-from pydantic import BaseModel, PlainSerializer
+from urllib import request
+from numpy import number
+from pydantic import BaseModel, PlainSerializer, Field, RootModel, model_validator
 from enum import Enum
-from typing_extensions import Annotated
+from typing_extensions import Annotated, Self
 from abc import ABC, abstractmethod
 from opcode_models.error_codes import OpcodeErrorCodes, OpcodeErrorCode
+from roc_data_types import ROCDataType
 from tlp_models.tlp import TLPInstance, TLPValue
 from tlp_models.point_type import PointType
 from tlp_models.point_types import PointTypes
 from tlp_models.parameter import Parameter
 from enums import (
     HistoryArchiveType,
+    HistoryInformationRequestCommand,
     ROCOperatingMode,
     ROCSubType,
     ROCType,
     OpcodeRevision,
-    LogicalCompatibilityStatus
+    LogicalCompatibilityStatus,
+    HistoryType,
+    TransactionDataTypeDict,
+    TransactionHistoryRequestCommand
 )
 from alarm_models import AlarmTypes
 from event_models import EventTypes
@@ -85,7 +93,6 @@ class EmptyResponseData(BaseModel):
 
 T = TypeVar('T', bound=BaseModel)
 
-
 class ResponseData(BaseModel, ABC, Generic[T]):
 
     opcode: int
@@ -104,16 +111,16 @@ class ResponseData(BaseModel, ABC, Generic[T]):
 
     @classmethod
     @abstractmethod
-    def data_from_binary(cls, raw_response: bytes) -> T:
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> T:
         pass
 
     @classmethod
-    def from_binary(cls, raw_response: bytes) -> 'ResponseData':
+    def from_binary(cls, raw_response: bytes, request_data: RequestData) -> 'ResponseData':
         opcode: int = cls.opcode_from_binary(raw_response=raw_response)
         data_length: int = cls.data_length_from_binary(raw_response=raw_response)
         data: Optional[T] = None
         if data_length > 0:
-            data = cls.data_from_binary(raw_response=raw_response)
+            data = cls.data_from_binary(raw_response=raw_response, request_data=request_data)
         return cls(
             opcode=opcode,
             data_length=data_length,
@@ -187,7 +194,7 @@ class SystemConfigResponseData(ResponseData[SystemConfigData]):
     data: Optional[SystemConfigData] = None
 
     @classmethod
-    def data_from_binary(cls, raw_response: bytes) -> SystemConfigData:
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> SystemConfigData:
         operating_mode: int = int(raw_response[6])
         comm_port: int = struct.unpack('h', raw_response[7:9])[0]
         security_access_mode: int = int(raw_response[9])
@@ -258,7 +265,7 @@ class ReadClockResponseData(ResponseData[ReadClockData]):
     data: Optional[ReadClockData] = None
 
     @classmethod
-    def data_from_binary(cls, raw_response: bytes) -> ReadClockData:
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> ReadClockData:
         current_second, current_minute, current_hour, current_day, current_month, current_year, current_day_of_week = struct.unpack('<BBBBBHB', raw_response[6:14])
         return ReadClockData(
             current_second=current_second,
@@ -312,8 +319,8 @@ class OpcodeTableResponseData(ResponseData[OpcodeTableData]):
     data: Optional[OpcodeTableData] = None
 
     @classmethod
-    def data_from_binary(cls, raw_response) -> OpcodeTableData:
-        return super().data_from_binary(raw_response)
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> OpcodeTableData:
+        return super().data_from_binary(raw_response=raw_response, request_data=request_data)
 
 
 
@@ -348,7 +355,7 @@ class IOLocationResponseData(ResponseData[IOLocationData]):
     data: Optional[IOLocationData] = None
 
     @classmethod
-    def data_from_binary(cls, raw_response: bytes) -> IOLocationData:
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> IOLocationData:
         data_length: int = int(raw_response[5])
         location_data: Dict[int, int] = {}
         data_bytes: bytes = raw_response[6:6 + data_length]
@@ -426,7 +433,7 @@ class TodayYestMinMaxResponseData(ResponseData[TodayYestMinMaxData]):
     data: Optional[TodayYestMinMaxData] = None
 
     @classmethod
-    def data_from_binary(cls, raw_response: bytes) -> TodayYestMinMaxData:
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> TodayYestMinMaxData:
         
         def time_tuple_to_datetime(time_tuple: tuple[int, int, int, int, int]) -> datetime:
             return datetime(
@@ -554,7 +561,7 @@ class HistoryTagPeriodIndexResponseData(ResponseData[HistoryTagPeriodIndexData])
     data: Optional[HistoryTagPeriodIndexData] = None
 
     @classmethod
-    def data_from_binary(cls, raw_response: bytes) -> HistoryTagPeriodIndexData:
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> HistoryTagPeriodIndexData:
         
         # Unpack data
         data_length: int = int(raw_response[5])
@@ -626,7 +633,7 @@ class AlarmDataResponseData(ResponseData[AlarmDataData]):
     data: Optional[AlarmDataData] = None
 
     @classmethod
-    def data_from_binary(cls, raw_response: bytes) -> AlarmDataData:
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> AlarmDataData:
         
         # Unpack data
         data_length: int = int(raw_response[5])
@@ -699,7 +706,7 @@ class EventDataResponseData(ResponseData[EventDataData]):
     data: Optional[EventDataData] = None
 
     @classmethod
-    def data_from_binary(cls, raw_response: bytes) -> EventDataData:
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> EventDataData:
         
         # Unpack data
         data_length: int = int(raw_response[5])
@@ -726,6 +733,651 @@ class EventDataResponseData(ResponseData[EventDataData]):
         )
 
 
+
+
+"""Opcode 135: Request Single Point History Data"""
+
+class SinglePointHistoryRequestData(RequestData):
+
+    opcode: int = 135
+
+    history_segment: int = Field(ge=0)
+    """History segment to request history data for."""
+
+    history_point_number: int = Field(ge=0)
+    """History point to request history data for."""
+
+    history_type: HistoryType
+    """Type of historical data to request."""
+
+    starting_history_segment_index: int = Field(ge=0)
+    """Starting history segment index to request."""
+
+    number_of_values: int = Field(ge=0, lt=60)
+    """Number of historical values to request."""
+
+    @property
+    def data_binary(self) -> bytes:
+        data: bytes = struct.pack(
+            'BBB',
+            self.history_segment,
+            self.history_point_number,
+            self.history_type.value
+        )
+        data += struct.pack(
+            '<h', 
+            self.starting_history_segment_index
+        )
+        data += struct.pack(
+            'B',
+            self.number_of_values
+        )
+        return data
+
+
+class SinglePointHistoryData(BaseModel):
+
+    history_segment: int
+    """The history segment this historical data belongs to."""
+
+    history_point_number: int
+    """The history point this historical data belongs to."""
+
+    current_history_segment_index: int
+    """The current history segment index."""
+
+    number_of_values: int
+    """The number of historical points sent."""
+
+    values: List[float | datetime]
+    """List of historical values."""
+
+
+class SinglePointHistoryResponseData(ResponseData[SinglePointHistoryData]):
+
+    data: Optional[SinglePointHistoryData] = None
+
+    @classmethod
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> SinglePointHistoryData:
+        
+        if isinstance(request_data, SinglePointHistoryRequestData):
+
+            # Parse response for request-specific data
+            data_length: int = raw_response[5]
+            response_data: bytes = raw_response[6:6 + data_length]
+
+            # Extract contextual data
+            history_segment: int = response_data[0]
+            history_point_number: int = response_data[1]
+            current_history_segment_index: int = struct.unpack('<h', response_data[2:4])[0]
+            number_of_values: int = response_data[4]
+            
+            # Extract historical values iteratively
+            start_index = 5
+            values: List[float | datetime] = []
+            for _ in range(number_of_values):
+                value_data: bytes = response_data[start_index : start_index + 4]
+                
+                # Parse as datetime if timestamp requested
+                if request_data.history_type in [HistoryType.DAILY_TIME_STAMPS, HistoryType.PERIODIC_TIME_STAMPS]:
+                    time_int = struct.unpack('<I', value_data)[0]
+                    timestamp: datetime = datetime.fromtimestamp(time_int)
+                    values.append(timestamp)
+                # Parse as float if value requested
+                else:
+                    values.append(struct.unpack('<f', response_data[start_index:start_index + 4])[0])
+                start_index += 4
+            
+            return SinglePointHistoryData(
+                history_segment=history_segment,
+                history_point_number=history_point_number,
+                current_history_segment_index=current_history_segment_index,
+                number_of_values=number_of_values,
+                values=values
+            )
+
+        else:
+            raise TypeError(f'Invalid Request Data type: {type(request_data)}')
+
+
+
+
+"""Opcode 136: Request Multiple History Point Data"""
+
+class MultiplePointHistoryRequestData(RequestData):
+
+    opcode: int = 136
+
+    history_segment: int
+    """History segment to request data for."""
+
+    history_segment_index: int
+    """History segment index to request data for."""
+
+    history_type: HistoryType
+    """Type of historical data to request."""
+
+    starting_history_point: int
+    """Starting history point number for request."""
+
+    number_of_history_points: int
+    """Number of history points to request data for."""
+
+    number_of_time_periods: int
+    """Number of time periods to request data for."""
+
+    @property
+    def data_binary(self) -> bytes:
+        data: bytes = struct.pack(
+            'B',
+            self.history_segment,
+        )
+        data += struct.pack(
+            '<h', 
+            self.history_segment_index
+        )
+        data += struct.pack(
+            'BBBB',
+            self.history_type.value,
+            self.starting_history_point,
+            self.number_of_history_points,
+            self.number_of_time_periods
+        )
+        return data
+
+
+
+class MultiplePointHistoryData(BaseModel):
+
+    history_segment: int
+    """History segment for data."""
+
+    history_segment_index: int
+    """History segment index for data."""
+
+    current_history_segment_index: int
+    """Current history segment index."""
+
+    number_of_data_elements: int
+    """Number of data elements sent ((# of history points + 1) * # of time periods)."""
+
+    values: Dict[datetime, Dict[int, float]]
+    """Values by point number, by period timestamp."""
+
+
+
+class MultiplePointHistoryResponseData(ResponseData[MultiplePointHistoryData]):
+
+    data: Optional[MultiplePointHistoryData] = None
+
+    @classmethod
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> MultiplePointHistoryData:
+        if isinstance(request_data, MultiplePointHistoryRequestData):
+
+            # Parse response for request-specific data
+            data_length: int = raw_response[5]
+            response_data: bytes = raw_response[6:6 + data_length]
+
+            # Extract contextual data
+            history_segment: int = response_data[0]
+            history_segment_index: int = struct.unpack('<h', response_data[1:3])[0]
+            current_history_segment_index: int = struct.unpack('<h', response_data[3:5])[0]
+            number_of_data_elements: int = response_data[5]
+
+            # Calculate the start/end index of each time period
+            number_of_points: int = request_data.number_of_history_points
+            number_of_periods: int = request_data.number_of_time_periods
+            start_indexes: list[int] = []
+            curr_index: int = 0
+            for _ in range(number_of_periods):
+                start_indexes.append(curr_index)
+                curr_index += (number_of_points + 1) * 4 # Number of point entries + 1 entry for the time period (all 4 bytes)
+
+            # Extract the point/timestamp data
+            points_data: bytes = response_data[6:]
+            points_length: int = 4 * number_of_points
+            values: Dict[datetime, Dict[int, float]] = {}
+            for index in start_indexes:
+
+                # Get timestamp and initialize entry in dictionary
+                timestamp_start_index: int = index
+                timestamp_end_index: int = timestamp_start_index + 4
+                time_int: int = struct.unpack('<I', points_data[timestamp_start_index : timestamp_end_index])[0]
+                timestamp: datetime = datetime.fromtimestamp(time_int)
+                values[timestamp] = {}
+
+                # Extract each point for the timestamp and add to dictionary
+                points_start_index: int = index + 4
+                points_end_index: int = points_start_index + points_length
+                points_bytes: bytes = points_data[points_start_index : points_end_index]
+                points_index: int = 0
+                for i in range(number_of_points):
+                    point_start_index: int = points_index
+                    point_end_index: int = point_start_index + 4
+                    point_bytes: bytes = points_bytes[point_start_index : point_end_index]
+                    point_float: float = struct.unpack('<f', point_bytes)[0]
+                    values[timestamp][i] = point_float
+                    points_index += 4
+            
+            return MultiplePointHistoryData(
+                history_segment=history_segment,
+                history_segment_index=history_segment_index,
+                current_history_segment_index=current_history_segment_index,
+                number_of_data_elements=number_of_data_elements,
+                values=values
+            ) 
+        else:
+            raise TypeError(f'Invalid Request Data type: {type(request_data)}')
+
+
+
+
+"""Opcode 137: Request History Index for a Day"""
+
+class DailyHistoryIndexRequestData(RequestData):
+
+    opcode: int = 137
+
+    history_segment: int
+    """The history segment to execute the request against."""
+
+    day_requested: int
+    """The day being requested."""
+
+    month_requested: int
+    """The month being requested."""
+
+    @property
+    def data_binary(self) -> bytes:
+        data: bytes = struct.pack(
+            'BBB',
+            self.history_segment,
+            self.day_requested,
+            self.month_requested
+        )
+        return data
+
+
+class DailyHistoryIndexData(BaseModel):
+
+    history_segment: int
+    """The history segment to which the indexes correspond."""
+    
+    starting_periodic_index: int
+    """Starting periodic index for a day and month request."""
+
+    number_of_periodic_entries: int
+    """Number of periodic entries for the day."""
+
+    daily_index: int
+    """Daily index for day and month requested."""
+
+    number_of_daily_entries: int
+    """Number of daily entries per contract day."""
+
+
+class DailyHistoryIndexResponseData(ResponseData[DailyHistoryIndexData]):
+
+    data: Optional[DailyHistoryIndexData] = None
+
+    @classmethod
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> DailyHistoryIndexData:
+
+        # Parse response for request-specific data
+        data_length: int = raw_response[5]
+        response_data: bytes = raw_response[6:6 + data_length]
+
+        # Extract data
+        history_segment: int = response_data[0]
+        starting_periodic_index: int = struct.unpack('<h', response_data[1:3])[0]
+        number_of_periodic_entries: int = struct.unpack('<h', response_data[3:5])[0]
+        daily_index: int = struct.unpack('<h', response_data[5:7])[0]
+        number_of_daily_entries: int = struct.unpack('<h', response_data[7:9])[0]
+
+        return DailyHistoryIndexData(
+            history_segment=history_segment,
+            starting_periodic_index=starting_periodic_index,
+            number_of_periodic_entries=number_of_periodic_entries,
+            daily_index=daily_index,
+            number_of_daily_entries=number_of_daily_entries
+        )
+
+
+
+
+"""Opcode 138: Request Daily and Periodic History for a Day"""
+
+class DailyPeriodicHistoryRequestData(RequestData):
+    
+    opcode: int = 138
+
+    history_segment: int
+    """The history segment for which to request history."""
+
+    history_point: int
+    """The history point for which to request history."""
+
+    day_requested: int
+    """The day for which to request history."""
+
+    month_requested: int
+    """The month for which to request history."""
+
+    @property
+    def data_binary(self) -> bytes:
+        data: bytes = struct.pack(
+            'BBBB',
+            self.history_segment,
+            self.history_point,
+            self.day_requested,
+            self.month_requested
+        )
+        return data
+    
+
+class DailyPeriodicHistoryData(BaseModel):
+
+    history_segment: int
+    """The history segment the historical data belongs to."""
+
+    history_point: int
+    """The history point the historical data belongs to."""
+
+    day_requested: int
+    """The day used for the history request."""
+
+    month_requested: int
+    """The month used for the history request."""
+
+    number_of_periodic_entries: int
+    """Number of periodic entries returned."""
+
+    number_of_daily_entries: int
+    """Number of daily entries returned."""
+
+    periodic_values: Dict[int, float]
+    """Periodic historical values indexed by period."""
+
+    daily_values: Dict[int, float]
+    """Daily historical values indexed by day."""
+
+
+class DailyPeriodicHistoryResponseData(ResponseData[DailyPeriodicHistoryData]):
+
+    data: Optional[DailyPeriodicHistoryData] = None
+
+    @classmethod
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> DailyPeriodicHistoryData:
+
+        # Parse response for request-specific data
+        data_length: int = raw_response[5]
+        response_data: bytes = raw_response[6:6 + data_length]
+
+        # Extract contextual data
+        history_segment: int = response_data[0]
+        history_point: int = response_data[1]
+        day_requested: int = response_data[2]
+        month_requested: int = response_data[3]
+        number_of_periodic_entries: int = struct.unpack('<h', response_data[4:6])[0]
+        number_of_daily_entries: int = struct.unpack('<h', response_data[6:8])[0]
+
+        # Extract value data iteratively
+        periodic_values: Dict[int, float] = {}
+        start_index: int = 0
+        for i in range(number_of_periodic_entries):
+            value: float = struct.unpack('<f', response_data[start_index : start_index + 4])[0]
+            periodic_values[i] = value
+            start_index += 4
+        
+        daily_values: Dict[int, float] = {}
+        for i in range(number_of_daily_entries):
+            value: float = struct.unpack('<f', response_data[start_index : start_index + 4])[0]
+            daily_values[i] = value
+            start_index += 4
+        
+        return DailyPeriodicHistoryData(
+            history_segment=history_segment,
+            history_point=history_point,
+            day_requested=day_requested,
+            month_requested=month_requested,
+            number_of_periodic_entries=number_of_periodic_entries,
+            number_of_daily_entries=number_of_daily_entries,
+            periodic_values=periodic_values,
+            daily_values=daily_values
+        )
+    
+
+
+
+"""Opcode 139: History Information Data"""
+
+
+class HistoryInformationRequestData(RequestData):
+
+    opcode: int = 139
+
+    command: HistoryInformationRequestCommand
+    """Command to issue for History Information Request. 0 requests configured points, 1 requests point data."""
+
+    history_segment: int
+    """History segment to query against. Required for both commands."""
+
+    history_segment_index: int | None = None
+    """History segment index to query history for. Only required for Command 1."""
+
+    history_type: HistoryType | None = None
+    """History type for history query. Only required for Command 1."""
+
+    number_of_time_periods: int | None = None
+    """Number of time periods for history query. Only required for Command 1."""
+
+    request_timestamps: bool | None = None
+    """If True, request timestamps for each period in history query. Only required for Command 1."""
+
+    history_points: List[int] | None = None
+    """History points for history query. Only required for Command 1."""
+
+    @property
+    def data_binary(self) -> bytes:
+        if self.command == HistoryInformationRequestCommand.REQUEST_POINT_DATA:
+            if (
+                self.history_type is not None
+            ) and (
+                self.request_timestamps is not None
+            ) and (
+                self.history_points
+            ):
+                data: bytes = struct.pack(
+                    'BB',
+                    self.command.value,
+                    self.history_segment
+                )
+                data += struct.pack('<h', self.history_segment_index)
+                data += struct.pack(
+                    'BBBB',
+                    self.history_type.value,
+                    self.number_of_time_periods,
+                    int(self.request_timestamps),
+                    len(self.history_points)
+                )
+                for point in self.history_points:
+                    data += struct.pack('B', point)
+                return data
+            else:
+                raise TypeError('If requesting point data, must include list of history points, history type, and timestamp request arguments.')
+        elif self.command == HistoryInformationRequestCommand.REQUEST_CONFIGURED_POINTS:
+            data: bytes = struct.pack(
+                'BB',
+                self.command.value,
+                self.history_segment
+            )
+            return data
+        else:
+            raise TypeError
+
+    @model_validator(mode='after')
+    def validate_for_command(self) -> Self:
+        if self.command == HistoryInformationRequestCommand.REQUEST_CONFIGURED_POINTS:
+            return self
+        elif self.command == HistoryInformationRequestCommand.REQUEST_POINT_DATA:
+            if (
+                self.history_segment_index is None
+                or self.history_points is None
+                or self.history_type is None
+                or self.number_of_time_periods is None
+                or self.request_timestamps is None
+            ):
+                raise ValueError(
+                    'For Command 1 (Request Point Data), the following arguments must be provided: '
+                    'history_segment_index, history_type, history_points, number_of_time_periods, request_timestamps'
+                )
+            else:
+                return self
+        else:
+            raise ValueError('Invalid command type.')
+
+
+class HistoryInformationData(BaseModel):
+
+    command: HistoryInformationRequestCommand
+    """The command requested. Command 0 returns configured points. Command 1 returns point data."""
+
+    history_segment: int
+    """History segment requested."""
+
+    number_of_configured_points: int | None = None
+    """Number of configured points on the history segment. Only returned for Command 0."""
+
+    configured_points: list[int] | None = None
+    """List of configured points on the history segment. Only returned for Command 0."""
+
+    current_index: int | None = None
+    """Current history segment index. Only returned for Command 1."""
+
+    number_of_time_periods: int | None = None
+    """Number of time periods requested. Only returned for Command 1."""
+
+    request_timestamps: bool | None = None
+    """If true, timestamps were requested. Only returned for Command 1."""
+
+    number_of_points: int | None = None
+    """Number of history points requested. Only returned for Command 1."""
+
+    values: Dict[datetime | int, Dict[int, float]] | None = None
+    """
+    Values by point number, then by time period. The time period key is either an integer or, if 
+    timestamps were requested, the timestamp of the period. Only returned for Command 1.
+    """
+
+    def model_dump(self, *args, **kwargs) -> Dict[str, Any]:
+        """Overridden model_dump to exclude null fields, due to duplicitous request data."""
+        kwargs.setdefault('exclude_none', True)
+        return super().model_dump(*args, **kwargs)
+
+    def model_dump_json(self, *args, **kwargs) -> str:
+        """Overridden model_dump_json to exclude null fields, due to duplicitous request data."""
+        kwargs.setdefault('exclude_none', True)
+        return super().model_dump_json(*args, **kwargs)
+
+
+class HistoryInformationResponseData(ResponseData[HistoryInformationData]):
+    
+    data: Optional[HistoryInformationData] = None
+
+    @classmethod
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> HistoryInformationData:
+        # Set timestamp of response receipt
+        response_timestamp: datetime = datetime.now()
+        
+        # Parse response for TL, parameter count, and starting parameter
+        data_length: int = int(raw_response[5])
+        response_data: bytes = raw_response[6:6 + data_length]
+        
+        # Determine which set of data to return based on command
+        command = HistoryInformationRequestCommand(response_data[0])
+        if command == HistoryInformationRequestCommand.REQUEST_CONFIGURED_POINTS:
+            history_segment: int = response_data[1]
+            number_of_configured_points: int = response_data[2]
+            configured_points: list[int] = []
+            for i in range(3, len(response_data)):
+                configured_points.append(response_data[i])
+            return HistoryInformationData(
+                command=command,
+                history_segment=history_segment,
+                number_of_configured_points=number_of_configured_points,
+                configured_points=configured_points
+            )
+        elif command == HistoryInformationRequestCommand.REQUEST_POINT_DATA:
+            
+            # Get the requested history points from request data
+            if isinstance(request_data, HistoryInformationRequestData):
+                requested_points: list[int] | None = request_data.history_points
+                if requested_points is None:
+                    raise ValueError('Requested history points from request data was null.')
+            else:
+                raise TypeError('Invalid type for request data.')
+            
+            # Unpack basic data
+            history_segment: int = response_data[1]
+            current_index: int = struct.unpack('h', response_data[2:4])[0]
+            number_of_time_periods: int = response_data[4]
+            request_timestamps: bool = bool(response_data[5])
+            number_of_points: int = response_data[6]
+            point_data_bytes: bytes = response_data[7:]
+            
+            # Unpack history point values with or without timestamps
+            values: Dict[datetime | int, Dict[int, float]] = {}
+            curr_idx: int = 0
+
+            # Quick check to make sure we have expected number of points
+            if number_of_points != len(requested_points):
+                raise ValueError('Received different number of points than requested points.')
+            
+            # Each time period batch contains the timestamp and then a value for each point
+            for i in range(number_of_time_periods):
+                
+                # Handle timestamps if requested
+                timestamp: datetime | None = None
+                if request_timestamps:
+                    time_int: int = struct.unpack('<I', point_data_bytes[curr_idx:curr_idx + 4])[0] # timestamp is 4 bytes
+                    timestamp = datetime.fromtimestamp(time_int)
+                    curr_idx += 4
+                    values[timestamp] = {} # create entry for this timestamp
+                else:
+                    values[i] = {} # create entry for time period index
+                
+                for point in requested_points:
+                    point_value: float = struct.unpack('<f', point_data_bytes[curr_idx:curr_idx + 4])[0] # point data is 4 bytes
+                    if request_timestamps:
+                        if timestamp:
+                            values[timestamp][point] = point_value # store at timestamp key
+                        else:
+                            raise ValueError('Timestamps requested but invalid timestamp found.')
+                    else:
+                        values[i][point] = point_value # store at integer time period key
+                    curr_idx += 4 # increment by the 4 value bytes
+
+            return HistoryInformationData(
+                command=command,
+                history_segment=history_segment,
+                current_index=current_index,
+                number_of_time_periods=number_of_time_periods,
+                request_timestamps=request_timestamps,
+                number_of_points=number_of_points,
+                values=values
+            )
+        else:
+            raise TypeError('Response included invalid command value.')
+
+    def model_dump(self, *args, **kwargs) -> Dict[str, Any]:
+        """Overridden model_dump to exclude null fields, due to duplicitous request data."""
+        kwargs.setdefault('exclude_none', True)
+        return super().model_dump(*args, **kwargs)
+
+    def model_dump_json(self, *args, **kwargs) -> str:
+        """Overridden model_dump_json to exclude null fields, due to duplicitous request data."""
+        kwargs.setdefault('exclude_none', True)
+        return super().model_dump_json(*args, **kwargs)
 
 
 """Opcode 167: Request Single Point Parameters"""
@@ -780,7 +1432,7 @@ class SinglePointParameterResponseData(ResponseData[SinglePointParameterData]):
     data: Optional[SinglePointParameterData] = None
 
     @classmethod
-    def data_from_binary(cls, raw_response: bytes) -> SinglePointParameterData:
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> SinglePointParameterData:
         # Set timestamp of response receipt
         response_timestamp: datetime = datetime.now()
         
@@ -876,7 +1528,7 @@ class ParameterResponseData(ResponseData[ParameterData]):
     data: Optional[ParameterData] = None
 
     @classmethod
-    def data_from_binary(cls, raw_response: bytes) -> ParameterData:
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> ParameterData:
         # Set timestamp of response receipt
         response_timestamp: datetime = datetime.now()
         
@@ -923,6 +1575,172 @@ class ParameterResponseData(ResponseData[ParameterData]):
         )
 
 
+
+"""Opcode 206: Read Transaction History Data"""
+
+class TransactionHistoryRequestData(RequestData):
+
+    opcode: int = 206
+
+    command: TransactionHistoryRequestCommand
+    """Command to issue for Transaction History Request. 1 requests a list of transactions, 1 requests single transaction data."""
+
+    transaction_segment: int
+    """Transaction segment to query against. Required for both commands."""
+
+    transaction_offset: int | None = None
+    """
+    Transaction offset; first transaction starts at index 0. After rollover, this is not 
+    necessarily the oldest transaction. Only required for Command 1.
+    """
+
+    transaction_number: int | None = None
+    """Transaction number to request. Only required for Command 2."""
+
+    data_offset: int | None = None
+    """Offset into the data type/value pairs, in # of bytes."""
+
+    @property
+    def data_binary(self) -> bytes:
+        if self.command == TransactionHistoryRequestCommand.LIST_TRANSACTIONS:
+            if (
+                self.transaction_segment is not None
+            ) and (
+                self.transaction_offset is not None
+            ):
+                data: bytes = struct.pack(
+                    'BB',
+                    self.command.value,
+                    self.transaction_segment
+                )
+                data += struct.pack('<h', self.transaction_offset)
+                return data
+            else:
+                raise TypeError('If requesting transaction list, must include segment and transaction offset arguments.')
+        elif self.command == TransactionHistoryRequestCommand.READ_TRANSACTION:
+            if (
+                self.transaction_segment is not None
+            ) and (
+                self.transaction_number is not None
+            ) and (
+                self.data_offset is not None
+            ):
+                data: bytes = struct.pack(
+                    'BB',
+                    self.command.value,
+                    self.transaction_segment
+                )
+                data += struct.pack('<h', self.transaction_number)
+                data += struct.pack('<h', self.data_offset)
+                return data
+            else:
+                raise TypeError('If requesting transaction list, must include segment, transaction number, and data offset arguments.')
+        else:
+            raise TypeError('Invalid command type.')
+
+
+class TransactionHistoryData(BaseModel):
+
+    command: TransactionHistoryRequestCommand
+    """Command to which data is responding."""
+
+    number_of_transactions: int | None = None
+    """Number of transactions returned. Only returned for Command 1."""
+    
+    excess_transactions: bool | None = None
+    """If True, there are more transactions than were returned with this data. Only returned for Command 1."""
+
+    description: str | None = None
+    """Description of the transaction segment. Only returned for Command 1."""
+
+    payload_size: int | None = None
+    """
+    Size of the data portion of the transactions returned. Equal to the sum of the size, in bytes,
+    of all data type codes and values of all transactions in segment. Only returned for Command 1.
+    """
+
+    transactions: list[tuple[int, datetime]] | None = None
+    """List of tuples with transaction numbers and the date the transaction was created. Only returned for Command 1."""
+
+    message_data_size: int | None = None
+    """Size of response data in bytes. Only returned for Command 2."""
+
+    excess_data: int | None = None
+    """If True, there was more transaction data than was returned with this data. Only returned for Command 2."""
+
+    values: list[Any] | None = None
+    """Transaction values."""
+
+
+class TransactionHistoryResponseData(ResponseData[TransactionHistoryData]):
+
+    data: Optional[TransactionHistoryData] = None
+
+    @classmethod
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> TransactionHistoryData:
+        
+        # Parse response for parameter count and value data
+        data_length: int = int(raw_response[5])
+        response_data: bytes = raw_response[6:6 + data_length]
+
+        command = TransactionHistoryRequestCommand(response_data[0])
+        if command == TransactionHistoryRequestCommand.LIST_TRANSACTIONS:
+            number_of_transactions: int = response_data[1]
+            excess_transactions: bool = bool(response_data[2])
+            description: str = struct.unpack('10s', response_data[3:13])[0]
+            payload_size: int = struct.unpack('<h', response_data[13:15])[0]
+            
+            # Decode transactions
+            transaction_bytes: bytes = response_data[15:]
+            transactions: list[tuple[int, datetime]] = []
+            curr_idx: int = 0
+            for i in range(number_of_transactions):
+                transaction_number: int = struct.unpack('<h', transaction_bytes[curr_idx:curr_idx + 2])[0] # 2 bytes for transaction number
+                time_int: int = struct.unpack('<I', transaction_bytes[curr_idx + 2:curr_idx + 6])[0] # 4 bytes for date
+                timestamp: datetime = datetime.fromtimestamp(time_int)
+                transactions.append((transaction_number, timestamp))
+                curr_idx += 6 # increment by 6 number/date bytes
+            
+            return TransactionHistoryData(
+                command=command,
+                number_of_transactions=number_of_transactions,
+                excess_transactions=excess_transactions,
+                description=description,
+                payload_size=payload_size,
+                transactions=transactions
+            )
+
+        elif command == TransactionHistoryRequestCommand.READ_TRANSACTION:
+            message_data_size: int = response_data[1]
+            excess_data: bool = bool(response_data[2])
+            
+            # Decode values
+            values: list[Any] = []
+            value_bytes_size: int = message_data_size - 1 # 1 byte for the excess data flag
+            value_bytes: bytes = response_data[3:value_bytes_size]
+            curr_idx: int = 0
+            while curr_idx < len(value_bytes):
+                data_type: int = value_bytes[curr_idx]
+                data_type_class: ROCDataType = TransactionDataTypeDict[data_type]
+                value_start_idx: int = curr_idx + 1
+                value_end_idx: int = value_start_idx + data_type_class.structure.size
+                value: Any = struct.unpack(
+                    data_type_class.structure.format, 
+                    value_bytes[value_start_idx:value_end_idx]
+                )
+                values.append(value)
+                curr_idx += 1 + data_type_class.structure.size
+
+            return TransactionHistoryData(
+                command=command,
+                message_data_size=message_data_size,
+                excess_data=excess_data,
+                values=values
+            )
+        else:
+            raise TypeError('Invalid command type included in response.')
+
+
 """Opcode 255: Error Indicator"""
 
 class OpcodeError(BaseModel):
@@ -945,7 +1763,7 @@ class OpcodeErrorResponseData(ResponseData[OpcodeErrorData]):
     data: Optional[OpcodeErrorData] = None
 
     @classmethod
-    def data_from_binary(cls, raw_response: bytes) -> OpcodeErrorData:
+    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> OpcodeErrorData:
         data_length: int = int(raw_response[5])
         response_data: bytes = raw_response[6:6 + data_length]
         errors: List[OpcodeError] = []
@@ -974,12 +1792,46 @@ class MessageModels:
     )
     _118 = MessageModel(request_data=AlarmDataRequestData, response_data=AlarmDataResponseData, opcode_desc='Request Alarm Data')
     _119 = MessageModel(request_data=EventDataRequestData, response_data=EventDataResponseData, opcode_desc='Request Event Data')
+    _135 = MessageModel(
+        request_data=SinglePointHistoryRequestData, 
+        response_data=SinglePointHistoryResponseData, 
+        opcode_desc='Request Single Point History Data'
+    )
+    _136 = MessageModel(
+        request_data=MultiplePointHistoryRequestData,
+        response_data=MultiplePointHistoryResponseData,
+        opcode_desc='Request Multiple History Point Data'
+    )
+    _137 = MessageModel(
+        request_data=DailyHistoryIndexRequestData,
+        response_data=DailyHistoryIndexResponseData,
+        opcode_desc='Request History Index for a Day'
+    )
+    _138 = MessageModel(
+        request_data=DailyPeriodicHistoryRequestData,
+        response_data=DailyPeriodicHistoryResponseData,
+        opcode_desc='Request Daily and Periodic History for a Day'
+    )
+    _139 = MessageModel(
+        request_data=HistoryInformationRequestData,
+        response_data=HistoryInformationResponseData,
+        opcode_desc='Request History Information Data'
+    )
     _167 = MessageModel(
         request_data=SinglePointParameterRequestData, 
         response_data=SinglePointParameterResponseData, 
         opcode_desc='Request Single Point Parameter(s)'
     )
-    _180 = MessageModel(request_data=ParameterRequestData, response_data=ParameterResponseData, opcode_desc='Request Parameter(s)')
+    _180 = MessageModel(
+        request_data=ParameterRequestData, 
+        response_data=ParameterResponseData, 
+        opcode_desc='Request Parameter(s)'
+    )
+    _206 = MessageModel(
+        request_data=TransactionHistoryRequestData, 
+        response_data=TransactionHistoryResponseData, 
+        opcode_desc='Request Transaction History'
+    )
     _255 = MessageModel(request_data=RequestData, response_data=OpcodeErrorResponseData, opcode_desc='Error Indicator')
 
     @classmethod

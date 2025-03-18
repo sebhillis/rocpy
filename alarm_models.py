@@ -1,5 +1,5 @@
 from pydantic import BaseModel, PlainSerializer, Field
-from enums import AlarmCondition, ParameterAlarmCode, AlarmTypeEnum
+from enums import AlarmCondition, ParameterAlarmCode
 from datetime import datetime
 from typing import ClassVar, Any, Union, get_args, Type
 from tlp_models.tlp import TLPInstance

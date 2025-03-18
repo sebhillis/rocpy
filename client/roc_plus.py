@@ -7,7 +7,19 @@ from loguru import logger
 from pydantic import ValidationError, BaseModel
 from datetime import datetime
 import json
-from opcode_models.opcodes import AlarmDataData, AlarmDataRequestData, EventDataData, EventDataRequestData, SinglePointParameterData, SinglePointParameterRequestData, TodayYestMinMaxData, TodayYestMinMaxRequestData
+from enums import HistoryType
+from opcode_models.opcodes import (
+    AlarmDataData, 
+    AlarmDataRequestData, 
+    EventDataData, 
+    EventDataRequestData, 
+    SinglePointHistoryData, 
+    SinglePointHistoryRequestData, 
+    SinglePointParameterData, 
+    SinglePointParameterRequestData, 
+    TodayYestMinMaxData, 
+    TodayYestMinMaxRequestData
+)
 from client.models import *
 from opcode_models import *
 from client.exceptions import *
@@ -23,6 +35,7 @@ from client.models import (
 from tlp_models.point_types import PointTypeNotFoundError
 from tlp_models.tlp import TLPInstance, TLPValue, TLPValues
 from client.async_tcp_generic import TCPClient
+import struct
 
 class ROCPlusClient:
     """
@@ -51,7 +64,7 @@ class ROCPlusClient:
             response = client.make_opcode_request(SystemConfigRequestData()) 
 
 
-        # Option 2 - normal class isntance, manual connection close
+        # Option 2 - normal class instance, manual connection close
         client = ROCPlusClient('192.168.1.1', 10001, 1, 2)
         response = client.make_opcode_request(SystemConfigRequestData())
         await client.close_connection()
@@ -143,8 +156,11 @@ class ROCPlusClient:
         Yields a connected ROCPlusClient object for use as an async context manager.
 
         Args:
-            initialize_io (bool, optional): If True, will upload I/O configuration on connect. Defaults to False.
-
+            init_io_def (bool, optional): If True, will upload I/O configuration on connect. Defaults to False.
+            init_user_opcode_def (bool, optional): If True, will upload User Opcode configuration on connect. Defaults to False.
+            init_history_def (bool, optional): If True, will upload History and History Point configuration on connect. Defaults to False.
+            init_system_config (bool, optional): If True, will upload ROC system configuration on connect. Defaults to False.
+            
         Yields:
             ROCPlusClient: ROCPlusClient with active, connected TCP socket to ROC device.
 
@@ -204,12 +220,14 @@ class ROCPlusClient:
         return
 
 
-    def get_opcode_device_data(self) -> DeviceData:
+    def _get_opcode_device_data(self) -> DeviceData:
         """
         Generate ROC/Host device header info for Opcode requests.
 
+        Intended for internal use with opcode wrapper method(s).
+
         Returns:
-            DeviceData: ROC/Host device header data.
+            DeviceData: ROC/Host device header data model.
         """
         try:
             return DeviceData(
@@ -230,16 +248,18 @@ class ROCPlusClient:
         The request data type will be used to generate the corresponding response
         data type, i.e. for a SystemConfigRequestData instance as the 
         request_data argument, a SystemConfigResponseData instance will be 
-        returned.
+        returned. Note that some request data types have required arguments, such as
+        point types, data point counts, etc.
 
         Args:
-            request_data (RequestData): Instance of RequestData for specific Opcode request.
+            request_data (RequestData): Instance of RequestData subclass specific to the Opcode.
 
         Returns:
-            Response[ResponseData]: Response model instance.
+            Response[ResponseData]: Response model subclass instance specific to the Opcode.
 
         Example:
             ```
+            # Execution of Opcode 6 from ROC Plus manual using wrapper method
             with ROCPlusClient('192.168.1.1', 10001, 1, 2).connect() as client:
                 request_data = SystemConfigRequestData()
                 response: SystemConfigResponseData = await client.make_opcode_request(request_data)
@@ -255,7 +275,7 @@ class ROCPlusClient:
             self._active_request = True
 
             self.logger.debug('Retrieving device data.')
-            device_data: DeviceData = self.get_opcode_device_data()
+            device_data: DeviceData = self._get_opcode_device_data()
             self.logger.debug('Device data retrieved. Constructing request.')
             request = Request(
                 device_data=device_data,
@@ -268,7 +288,7 @@ class ROCPlusClient:
             self.logger.debug('Request written successfully. Reading response from stream.')
             response_packet: bytes = await self._connection.read_from_stream()
             self.logger.debug('Response read successfully. Decoding binary payload into response object.')
-            response: Response = Response.from_binary(raw_response=response_packet)
+            response: Response = Response.from_binary(raw_response=response_packet, request_data=request_data)
             self.logger.debug('Response decoded successfully. Returning response object.')
             return response
         except ValidationError as e:
@@ -285,7 +305,7 @@ class ROCPlusClient:
 
         This method essentially encapsulates checking a response for an error Opcode, empty data, or unexpected data,
         and returns the core data from the response. This method gets used by the Opcode convenience methods like
-        get_system_config that return the data as opposed to the entirety of the Opcode response.
+        get_system_config that return only the data as opposed to the entirety of the Opcode response.
 
         Args:
             response_data (ResponseData): The ResponseData payload returned for the request. Typically retrieved like "response.response_data".
@@ -337,6 +357,8 @@ class ROCPlusClient:
         Example:
             ```
             with ROCPlusClient('192.168.1.1', 10001, 1, 2).connect() as client:
+                
+                # Read TLP using TLPInstance
                 tlp_def = TLPInstance(
                     parameter=PointTypes.ANALOG_INPUT.Parameters.EU_VALUE, 
                     logical_number=1
@@ -344,6 +366,7 @@ class ROCPlusClient:
                 tlp_value: TLPValue = await client.read_tlp(tlp_def)
                 print(tlp_value.value)
 
+                # Read TLP using T/L/P integers
                 tlp_def = (103, 1, 21)
                 tlp_value: TLPValue = await client.read_tlp(tlp_def)
                 print(tlp_value.value)
@@ -865,6 +888,7 @@ class ROCPlusClient:
 
         # Instantiate a point definition
         return HistorySegmentPointConfiguration(
+            history_segment=segment_index,
             history_point_number=point_number,
             point_tag_id=values.values[0].value,
             parameter_description=values.values[1].value,
@@ -1060,3 +1084,83 @@ class ROCPlusClient:
         self.logger.debug('Validating Opcode response.')
         data: EventDataData = self.validate_response(response_data=response.response_data, response_data_type=EventDataData)
         return data
+    
+    async def get_single_point_history_data(
+        self, 
+        segment_index: int, 
+        point_number: int, 
+        history_type: HistoryType, 
+        starting_history_segment: int, 
+        number_of_values: int
+    ) -> SinglePointHistoryData:
+        """
+        Retrieve historical values for a single history point.
+
+        Returns:
+            SinglePointHistoryData: Model instance with all data returned by Opcode 135 request.
+        """
+        self.logger.debug('History data requested. Constructing request.')
+        request_data = SinglePointHistoryRequestData(
+            history_segment=segment_index,
+            history_point_number=point_number,
+            history_type=history_type,
+            starting_history_segment_index=starting_history_segment,
+            number_of_values=number_of_values
+        )
+        self.logger.debug('Submitting Opcode request.')
+        response: Response[ResponseData] = await self.make_opcode_request(request_data=request_data)
+        self.logger.debug('Validating Opcode response.')
+        data: SinglePointHistoryData = self.validate_response(response_data=response.response_data, response_data_type=SinglePointHistoryData)
+        return data
+    
+    async def get_daily_history_data(
+        self,
+        segment_index: int,
+        point_number: int,
+        starting_history_segment: int,
+        number_of_values: int
+    ) -> TLPValues:
+        
+        # Get TLP for history point configuration
+        if not(self.history_definition._defined):
+            await self.initialize_history_definition()
+        tlp: TLPInstance = self.history_definition.get_tlp_by_point(
+            segment_index=segment_index, 
+            point_number=point_number
+        )
+
+        # Get history data for history point
+        value_data: SinglePointHistoryData = await self.get_single_point_history_data(
+            segment_index=segment_index, 
+            point_number=point_number,
+            history_type=HistoryType.DAILY,
+            number_of_values=number_of_values,
+            starting_history_segment=starting_history_segment
+        )
+
+        # Get timestamps if possible
+        timestamp_data: SinglePointHistoryData = await self.get_single_point_history_data(
+            segment_index=segment_index, 
+            point_number=point_number,
+            history_type=HistoryType.DAILY_TIME_STAMPS,
+            number_of_values=number_of_values,
+            starting_history_segment=starting_history_segment
+        )
+
+        # Create iterable of values, timestamps
+        history_data: List[tuple] = list(zip(value_data.values, timestamp_data.values))
+
+        # Create TLP values for history data
+        tlp_values: List[TLPValue] = []
+        for value, timestamp in history_data:
+            if isinstance(value, float) and isinstance(timestamp, datetime):
+                tlp_value = TLPValue.from_tlp_instance(
+                    tlp=tlp,
+                    value=value,
+                    timestamp=timestamp
+                )
+                tlp_values.append(tlp_value)
+            else:
+                raise TypeError(f'Unexpected type of value and timestamp: value | {type(value)}; timestamp | {type(timestamp)}')
+        tlp_values_obj = TLPValues(values=tlp_values)
+        return tlp_values_obj

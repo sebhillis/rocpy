@@ -311,6 +311,9 @@ class ConfigurableOpcodeTablesDefinition:
 
 class HistorySegmentPointConfiguration(BaseModel):
 
+    history_segment: int
+    """The history segment this point belongs to."""
+
     history_point_number: int
     """ID for the history point."""
 
@@ -418,3 +421,29 @@ class HistoryDefinition:
         for index, segment in self.history_configuration_map.items():
             self_dict['history_definition'][index] = segment.model_dump()
         return self_dict
+    
+    def get_point_by_tlp(self, tlp: TLPInstance) -> HistorySegmentPointConfiguration:
+        for segment_index, segment_config in self.history_configuration_map.items():
+            for point_config in segment_config.point_configurations:
+                point_tlp: TLPInstance | None = point_config.history_log_point
+                if point_tlp:
+                    if (
+                        tlp.parameter, 
+                        tlp.point_type.point_type_number, 
+                        tlp.logical_number
+                    ) == (
+                        point_tlp.parameter,
+                        point_tlp.point_type.point_type_number,
+                        point_tlp.logical_number
+                    ):
+                        return point_config
+        raise KeyError('No history point found.')
+    
+    def get_tlp_by_point(self, segment_index: int, point_number: int) -> TLPInstance:
+        segment_config: HistorySegmentConfiguration = self.history_configuration_map[segment_index]
+        for point_config in segment_config.point_configurations:
+            if point_config.history_point_number == point_number:
+                tlp: TLPInstance | None = point_config.history_log_point
+                if tlp:
+                    return tlp
+        raise KeyError('No TLP found.')

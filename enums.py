@@ -107,27 +107,6 @@ class ParameterAlarmCode(Enum):
     BAD_LEVEL_A_PULSE_STREAM = 32
     MARKET_PULSE_ALARM = 33
 
-class AlarmTypeEnum(Enum):
-    """Alarm type."""
-
-    NO_ALARM = 0
-    PARAMETER_ALARM = 1
-    FST_ALARM = 2
-    USER_TEXT_ALARM = 3
-    USER_VALUE_ALARM = 4
-
-class EventTypeEnum(Enum):
-    """Event Type."""
-
-    NO_EVENT = 0
-    PARAMETER_CHANGE_EVENT = 1
-    SYSTEM_EVENT = 2
-    FST_EVENT = 3
-    USER_EVENT = 4
-    POWER_LOST_EVENT = 5
-    CLOCK_SET_EVENT = 6
-    CALIBRATE_VERIFY_EVENT = 7
-
 EventDataTypeDict: dict[int, ROCDataType] = {
     0: dt.BIN,
     1: dt.INT8,
@@ -189,3 +168,45 @@ class UserEventTypeEnum(Enum):
     CALIBRATION_CANCEL = 252
     CALIBRATION_SUCCESS = 253
     MVS_RESET_TO_FACTORY_DEFAULTS = 254
+
+
+class HistoryType(Enum):
+    """Historical Value Retrieval Type."""
+
+    MINUTE = 0
+    PERIODIC = 1
+    DAILY = 2
+    PERIODIC_TIME_STAMPS = 3
+    DAILY_TIME_STAMPS = 4
+
+class HistoryInformationRequestCommand(Enum):
+    """Command to issue for a History Information Request opcode."""
+
+    REQUEST_CONFIGURED_POINTS = 0
+    REQUEST_POINT_DATA = 1
+
+class TransactionHistoryRequestCommand(Enum):
+    """Command to issue for a Transaction History Request opcode."""
+
+    LIST_TRANSACTIONS = 1
+    READ_TRANSACTION = 2
+
+TransactionDataTypeDict: dict[int, ROCDataType] = {
+    1: dt.UINT8,
+    2: dt.INT8,
+    3: dt.UINT16,
+    4: dt.INT16,
+    5: dt.UINT32,
+    6: dt.INT32,
+    7: dt.FLOAT,
+    8: dt.DBL,
+    9: dt.AC3,
+    10: dt.AC7,
+    11: dt.AC10,
+    12: dt.AC20,
+    14: dt.AC30,
+    15: dt.AC40,
+    17: dt.BIN,
+    18: dt.TLP,
+    20: dt.TIME
+}
