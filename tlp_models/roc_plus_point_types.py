@@ -1,6 +1,10 @@
 from .parameter import BitDescriptor, Parameter, ParameterBinary
 from .point_type import PointType
 from roc_data_types import ParameterDataTypes as dt
+from enum import Enum
+
+
+
 
 
 class POWER_CONTROL_PARAMETERS(PointType):
@@ -7456,7 +7460,7 @@ class TURBINE_METER_RUN_CONFIG(PointType):
             parameter_number=1,
             parameter_name='Point Description',
             parameter_desc='Description for specific meter run. Values must be printable ASCII characters.',
-            data_type=dt.AC,
+            data_type=dt.AC30,
             access='R/W',
             value_range='0x20 0x7E for each ASCII character'
         )
@@ -11849,7 +11853,7 @@ class MODBUS_MASTER_MODEM_CONFIG(PointType):
             parameter_number=2,
             parameter_name='First Connect Command',
             parameter_desc='A 40-character modem command typically used to represent the telephone number of the slave RTU.',
-            data_type=dt.AC,
+            data_type=dt.AC30,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -11873,7 +11877,7 @@ class MODBUS_MASTER_MODEM_CONFIG(PointType):
             parameter_number=4,
             parameter_name='Second Connect Command',
             parameter_desc='A 40-character modem command typically used to represent the telephone number of the slave RTU.',
-            data_type=dt.AC,
+            data_type=dt.AC30,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -11897,7 +11901,7 @@ class MODBUS_MASTER_MODEM_CONFIG(PointType):
             parameter_number=6,
             parameter_name='Third Connect Command',
             parameter_desc='A 40-character modem command typically used to represent the telephone number of the slave RTU.',
-            data_type=dt.AC,
+            data_type=dt.AC30,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -11921,7 +11925,7 @@ class MODBUS_MASTER_MODEM_CONFIG(PointType):
             parameter_number=8,
             parameter_name='Fourth Connect Command',
             parameter_desc='A 40-character modem command typically used to represent the telephone number of the slave RTU.',
-            data_type=dt.AC,
+            data_type=dt.AC30,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -11945,7 +11949,7 @@ class MODBUS_MASTER_MODEM_CONFIG(PointType):
             parameter_number=10,
             parameter_name='Fifth Connect Command',
             parameter_desc='A 40-character modem command typically used to represent the telephone number of the slave RTU.',
-            data_type=dt.AC,
+            data_type=dt.AC30,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -11969,7 +11973,7 @@ class MODBUS_MASTER_MODEM_CONFIG(PointType):
             parameter_number=12,
             parameter_name='Sixth Connect Command',
             parameter_desc='A 40-character modem command typically used to represent the telephone number of the slave RTU.',
-            data_type=dt.AC,
+            data_type=dt.AC30,
             access='R/W',
             value_range='0x20 > 0x7E for each byte'
         )
@@ -13935,7 +13939,7 @@ class DS800_CONFIGURATION(PointType):
             parameter_number=8,
             parameter_name='Resource 1 Name',
             parameter_desc='Indicates the name for the specified resource.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O',
             value_range='0x02 0x7E for each bite'
         )
@@ -13984,7 +13988,7 @@ class DS800_CONFIGURATION(PointType):
             parameter_number=12,
             parameter_name='Resource 2 Name',
             parameter_desc='Indicates the name for the specified resource.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O',
             value_range='0x02 0x7E for each bite'
         )
@@ -14033,7 +14037,7 @@ class DS800_CONFIGURATION(PointType):
             parameter_number=16,
             parameter_name='Resource 3 Name',
             parameter_desc='Indicates the name for the specified resource.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O',
             value_range='0x02 0x7E for each bite'
         )
@@ -14082,7 +14086,7 @@ class DS800_CONFIGURATION(PointType):
             parameter_number=20,
             parameter_name='Resource 4 Name',
             parameter_desc='Indicates the name for the specified resource.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O',
             value_range='0x02 0x7E for each bite'
         )
@@ -14152,7 +14156,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=0,
             parameter_name='Group #1',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14164,7 +14168,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=1,
             parameter_name='Group #2',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14176,7 +14180,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=2,
             parameter_name='Group #3',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14188,7 +14192,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=3,
             parameter_name='Group #4',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14200,7 +14204,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=4,
             parameter_name='Group #5',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14212,7 +14216,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=5,
             parameter_name='Group #6',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14224,7 +14228,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=6,
             parameter_name='Group #7',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14236,7 +14240,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=7,
             parameter_name='Group #8',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14248,7 +14252,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=8,
             parameter_name='Group #9',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14260,7 +14264,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=9,
             parameter_name='Group #10',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14272,7 +14276,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=10,
             parameter_name='Group #11',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14284,7 +14288,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=11,
             parameter_name='Group #12',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14296,7 +14300,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=12,
             parameter_name='Group #13',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14308,7 +14312,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=13,
             parameter_name='Group #14',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14320,7 +14324,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=14,
             parameter_name='Group #15',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14332,7 +14336,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=15,
             parameter_name='Group #16',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14344,7 +14348,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=16,
             parameter_name='Group #17',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14356,7 +14360,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=17,
             parameter_name='Group #18',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14368,7 +14372,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=18,
             parameter_name='Group #19',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -14380,7 +14384,7 @@ class SECURITY_GROUP_CONFIGURATION(PointType):
             parameter_number=19,
             parameter_name='Group #20',
             parameter_desc='Group identifier',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -19215,7 +19219,7 @@ class USER_C_HOST_PARAMETERS(PointType):
             parameter_number=0,
             parameter_name='Host Library Version',
             parameter_desc='The library version supported by the ROC.',
-            data_type=dt.AC,
+            data_type=dt.AC12,
             access='R/O',
             value_range='0x20 0x7E for each byte'
         )
@@ -19346,7 +19350,7 @@ class SMART_IO_MODULE_INFO(PointType):
             parameter_number=4,
             parameter_name='Boot Part Number',
             parameter_desc='Part number of boot firmware',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O',
             value_range='0x20 0x7E for each byte'
         )
@@ -19358,7 +19362,7 @@ class SMART_IO_MODULE_INFO(PointType):
             parameter_number=5,
             parameter_name='Boot Build Date',
             parameter_desc='The time and date stamp the boot firmware was created.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O',
             value_range='0x20 0x7E for each byte'
         )
@@ -19382,7 +19386,7 @@ class SMART_IO_MODULE_INFO(PointType):
             parameter_number=7,
             parameter_name='Flash Part Number',
             parameter_desc='Part number of flash firmware',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O',
             value_range='0x20 0x7E for each byte'
         )
@@ -19394,7 +19398,7 @@ class SMART_IO_MODULE_INFO(PointType):
             parameter_number=8,
             parameter_name='Flash Build Date',
             parameter_desc='The time and date stamp the flash firmware was created.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O',
             value_range='0x20 0x7E for each byte'
         )
@@ -19406,7 +19410,7 @@ class SMART_IO_MODULE_INFO(PointType):
             parameter_number=9,
             parameter_name='Module Specific Data',
             parameter_desc='General data that is specific for each module type.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O',
             value_range='0x20 0x7E for each byte'
         )
@@ -19418,7 +19422,7 @@ class SMART_IO_MODULE_INFO(PointType):
             parameter_number=10,
             parameter_name='Serial Number',
             parameter_desc='Serial Number',
-            data_type=dt.AC,
+            data_type=dt.AC30,
             access='R/O',
             value_range='0x20 0x7E for each byte'
         )
@@ -19430,7 +19434,7 @@ class SMART_IO_MODULE_INFO(PointType):
             parameter_number=11,
             parameter_name='Flash Description',
             parameter_desc='Description that is specific for each module type',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O',
             value_range='0x20 0x7E for each byte'
         )
@@ -21409,7 +21413,7 @@ class ADVANCE_PULSE_MODULE(PointType):
             parameter_number=62,
             parameter_name='Pulse Input 1 Tag',
             parameter_desc='A 20 character identification name for a specific APM Pulse Input. Values must be printable ASCII characters.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each ASCII character'
         )
@@ -21421,7 +21425,7 @@ class ADVANCE_PULSE_MODULE(PointType):
             parameter_number=63,
             parameter_name='Pulse Input 2 Tag',
             parameter_desc='A 20 character identification name for a specific APM Pulse Input. Values must be printable ASCII characters.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each ASCII character'
         )
@@ -21433,7 +21437,7 @@ class ADVANCE_PULSE_MODULE(PointType):
             parameter_number=64,
             parameter_name='Pulse Input 3 Tag',
             parameter_desc='A 20 character identification name for a specific APM Pulse Input. Values must be printable ASCII characters.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each ASCII character'
         )
@@ -21445,7 +21449,7 @@ class ADVANCE_PULSE_MODULE(PointType):
             parameter_number=65,
             parameter_name='Pulse Input 4 Tag',
             parameter_desc='A 20 character identification name for a specific APM Pulse Input. Values must be printable ASCII characters.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each ASCII character'
         )
@@ -21741,7 +21745,7 @@ class ADVANCE_PULSE_MODULE(PointType):
             parameter_number=89,
             parameter_name='Pulse Input 1 Units Tag',
             parameter_desc='Defines the units P1 uses. Values must be printable ASCII characters.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each ASCII character'
         )
@@ -21753,7 +21757,7 @@ class ADVANCE_PULSE_MODULE(PointType):
             parameter_number=90,
             parameter_name='Pulse Input 2Units Tag',
             parameter_desc='Defines the units P2 uses. Values must be printable ASCII characters.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each ASCII character'
         )
@@ -21765,7 +21769,7 @@ class ADVANCE_PULSE_MODULE(PointType):
             parameter_number=91,
             parameter_name='Pulse Input 3 Units Tag',
             parameter_desc='Defines the units P3 uses. Values must be printable ASCII characters.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each ASCII character'
         )
@@ -21777,7 +21781,7 @@ class ADVANCE_PULSE_MODULE(PointType):
             parameter_number=92,
             parameter_name='Pulse Input 4Units Tag',
             parameter_desc='Defines the units P4 uses. Values must be printable ASCII characters.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each ASCII character'
         )
@@ -25032,7 +25036,7 @@ class RTU_NETWORK_DICOVERY_LIST(PointType):
             parameter_number=0,
             parameter_name='Tag',
             parameter_desc='Tag for the Remote RTU',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -25102,7 +25106,7 @@ class NETWORK_COMMISSIONED_LIST(PointType):
             parameter_number=0,
             parameter_name='Tag',
             parameter_desc='Device tag',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -25553,7 +25557,7 @@ class IEC62591_LIVE_LIST(PointType):
             parameter_number=0,
             parameter_name='Device Tag',
             parameter_desc='Device Tag',
-            data_type=dt.AC,
+            data_type=dt.AC40,
             access='R/O',
             value_range='0x20 0x7E for each byte'
         )
@@ -25672,7 +25676,7 @@ class IEC62591_COMMISSIONED_LIST(PointType):
             parameter_number=0,
             parameter_name='Device Tag',
             parameter_desc='Tag that resides in device.',
-            data_type=dt.AC,
+            data_type=dt.AC40,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -25684,7 +25688,7 @@ class IEC62591_COMMISSIONED_LIST(PointType):
             parameter_number=1,
             parameter_name='Device Message',
             parameter_desc='Device message.',
-            data_type=dt.AC,
+            data_type=dt.AC40,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -25696,7 +25700,7 @@ class IEC62591_COMMISSIONED_LIST(PointType):
             parameter_number=2,
             parameter_name='Device Descriptor',
             parameter_desc='Device descriptor',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -26829,7 +26833,7 @@ class VDI(PointType):
             parameter_number=0,
             parameter_name='Operator Identifier',
             parameter_desc='A three-character ASCII operator identifier (such as LOI).',
-            data_type=dt.AC,
+            data_type=dt.AC3,
             access='R/W',
             value_range='0x20 0x7E for each byte.'
         )
@@ -27144,7 +27148,7 @@ class VDI(PointType):
             parameter_number=26,
             parameter_name='Long User ID',
             parameter_desc='A 30-character ASCII identifier for authenticating a User',
-            data_type=dt.AC,
+            data_type=dt.AC30,
             access='R/W',
             value_range='0x20 0x7E for each byte.'
         )
@@ -27156,7 +27160,7 @@ class VDI(PointType):
             parameter_number=27,
             parameter_name='Long Password',
             parameter_desc='A 32-character password associated with the user. Note: The default for logical zero is Password padded with ASCII spaces. This should be changed immediately upon longer login activation. Note: Reading this parameter will return a blank string. Passwords are effectively Write Only. Note: The password must be encrypted and cannot be written in clear text.',
-            data_type=dt.AC,
+            data_type=dt.AC40,
             access='R/W',
             value_range='0x20 0x7E for each byte.'
         )
@@ -28631,7 +28635,7 @@ class HART(PointType):
             parameter_number=55,
             parameter_name='Device 1 Message',
             parameter_desc='Device 1 message.',
-            data_type=dt.AC,
+            data_type=dt.AC40,
             access='R/W',
             value_range='0x20 - 0x5F for each byte'
         )
@@ -28643,7 +28647,7 @@ class HART(PointType):
             parameter_number=56,
             parameter_name='Device 1 Descriptor',
             parameter_desc='Device 1 descriptor.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x5F for each byte'
         )
@@ -29199,7 +29203,7 @@ class HART(PointType):
             parameter_number=102,
             parameter_name='Device 2 Message',
             parameter_desc='Device 2 message.',
-            data_type=dt.AC,
+            data_type=dt.AC40,
             access='R/W',
             value_range='0x20 0x5F for each byte'
         )
@@ -29211,7 +29215,7 @@ class HART(PointType):
             parameter_number=103,
             parameter_name='Device 2 Descriptor',
             parameter_desc='Device 2 descriptor.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x5F for each byte'
         )
@@ -29767,7 +29771,7 @@ class HART(PointType):
             parameter_number=149,
             parameter_name='Device 3 Message',
             parameter_desc='Device 3 message.',
-            data_type=dt.AC,
+            data_type=dt.AC40,
             access='R/W',
             value_range='0x20 0x5F for each byte'
         )
@@ -29779,7 +29783,7 @@ class HART(PointType):
             parameter_number=150,
             parameter_name='Device 3 Descriptor',
             parameter_desc='Device 3 descriptor.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x5F for each byte'
         )
@@ -30335,7 +30339,7 @@ class HART(PointType):
             parameter_number=196,
             parameter_name='Device 4 Message',
             parameter_desc='Device 4 message.',
-            data_type=dt.AC,
+            data_type=dt.AC40,
             access='R/W',
             value_range='0x20 0x5F for each byte'
         )
@@ -30347,7 +30351,7 @@ class HART(PointType):
             parameter_number=197,
             parameter_name='Device 4 Descriptor',
             parameter_desc='Device 4 descriptor.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x5F for each byte'
         )
@@ -30903,7 +30907,7 @@ class HART(PointType):
             parameter_number=243,
             parameter_name='Device 5 Message',
             parameter_desc='Device 5 message.',
-            data_type=dt.AC,
+            data_type=dt.AC40,
             access='R/W',
             value_range='0x20 0x5F for each byte'
         )
@@ -30915,7 +30919,7 @@ class HART(PointType):
             parameter_number=244,
             parameter_name='Device 5 Descriptor',
             parameter_desc='Device 5 descriptor.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20 0x5F for each byte'
         )
@@ -31104,7 +31108,7 @@ class SYSTEM_VARIABLES(PointType):
             parameter_number=2,
             parameter_name='Station Name',
             parameter_desc='A 20-character ASCII field for the station name.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/W',
             value_range='0x20-0x7E for each byte'
         )
@@ -31116,7 +31120,7 @@ class SYSTEM_VARIABLES(PointType):
             parameter_number=3,
             parameter_name='Part Number and Version',
             parameter_desc='The software part number and version number string.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O',
             value_range='0x20 0x7E for each byte'
         )
@@ -31128,7 +31132,7 @@ class SYSTEM_VARIABLES(PointType):
             parameter_number=4,
             parameter_name='Time Created',
             parameter_desc='The time and date stamp the firmware was created.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O',
             value_range='0x20 0x7E for each byte'
         )
@@ -31140,7 +31144,7 @@ class SYSTEM_VARIABLES(PointType):
             parameter_number=5,
             parameter_name='Manufacturer ID',
             parameter_desc='The manufacturing identification string.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O',
             value_range='0x20 0x7E for each byte'
         )
@@ -31152,7 +31156,7 @@ class SYSTEM_VARIABLES(PointType):
             parameter_number=6,
             parameter_name='Product Description',
             parameter_desc='The manufacturing description of product.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O',
             value_range='0x20 0x7E for each byte'
         )
@@ -31472,7 +31476,7 @@ class SYSTEM_VARIABLES(PointType):
             parameter_number=37,
             parameter_name='Boot Part Number and Version',
             parameter_desc='Contains the boot software part number and version number string.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O',
             value_range='0x20 0x7E for each byte'
         )
@@ -31484,7 +31488,7 @@ class SYSTEM_VARIABLES(PointType):
             parameter_number=38,
             parameter_name='Boot Firmware Time Created',
             parameter_desc='Contains the time and date stamp the foot firmware was created.',
-            data_type=dt.AC,
+            data_type=dt.AC20,
             access='R/O',
             value_range='0x20 0x7E for each byte'
         )
@@ -31893,7 +31897,7 @@ class LOGON_PARAMETERS(PointType):
             parameter_number=0,
             parameter_name='Operator Identifier',
             parameter_desc='A three-character ASCII operator identifier (such as LOI).',
-            data_type=dt.AC,
+            data_type=dt.AC3,
             access='R/W',
             value_range='0x20 0x7E for each byte.'
         )
@@ -32208,7 +32212,7 @@ class LOGON_PARAMETERS(PointType):
             parameter_number=26,
             parameter_name='Long User ID',
             parameter_desc='A 30-character ASCII identifier for authenticating a User',
-            data_type=dt.AC,
+            data_type=dt.AC30,
             access='R/W',
             value_range='0x20 0x7E for each byte.'
         )
@@ -32220,7 +32224,7 @@ class LOGON_PARAMETERS(PointType):
             parameter_number=27,
             parameter_name='Long Password',
             parameter_desc='A 32-character password associated with the user. Note: The default for logical zero is Password padded with ASCII spaces. This should be changed immediately upon longer login activation. Note: Reading this parameter will return a blank string. Passwords are effectively Write Only. Note: The password must be encrypted and cannot be written in clear text.',
-            data_type=dt.AC,
+            data_type=dt.AC40,
             access='R/W',
             value_range='0x20 0x7E for each byte.'
         )
@@ -32417,7 +32421,7 @@ class COMMUNICATION_PORTS(PointType):
             parameter_number=12,
             parameter_name='Configuration Command',
             parameter_desc='The commands needed to initialize a modem.',
-            data_type=dt.AC,
+            data_type=dt.AC40,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -32429,7 +32433,7 @@ class COMMUNICATION_PORTS(PointType):
             parameter_number=13,
             parameter_name='Connect Command',
             parameter_desc='The Hayes compatible modem command needed to dial out for SRBX communications.',
-            data_type=dt.AC,
+            data_type=dt.AC40,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -32466,7 +32470,7 @@ class COMMUNICATION_PORTS(PointType):
             parameter_number=16,
             parameter_name='Modem disconnect command',
             parameter_desc='The user can use a different disconnect string for a modem.',
-            data_type=dt.AC,
+            data_type=dt.AC40,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -33045,7 +33049,7 @@ class FST_PARAMETERS(PointType):
             parameter_number=16,
             parameter_name='Message #1',
             parameter_desc='This parameter is updated with the first argument of the MSG FST command when the command executes.',
-            data_type=dt.AC,
+            data_type=dt.AC30,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -33057,7 +33061,7 @@ class FST_PARAMETERS(PointType):
             parameter_number=17,
             parameter_name='Message #2',
             parameter_desc='This parameter is updated with the first argument of the MS2 FST command when the command executes.',
-            data_type=dt.AC,
+            data_type=dt.AC30,
             access='R/W',
             value_range='0x20 0x7E for each byte'
         )
@@ -33203,7 +33207,7 @@ class FST_PARAMETERS(PointType):
             parameter_number=29,
             parameter_name='FST Description',
             parameter_desc='Contains a short description about the FST that is running. The user sets this before the FST is uploaded to the ROC800.',
-            data_type=dt.AC,
+            data_type=dt.AC40,
             access='R/O',
             value_range='0x20 0x7E for each byte'
         )
@@ -33425,7 +33429,7 @@ class SOFT_POINT_PARAMETERS(PointType):
             parameter_number=0,
             parameter_name='ASCII Text 1',
             parameter_desc='Text string used to label instance of soft point. The x in default is the number of the soft point.',
-            data_type=dt.AC,
+            data_type=dt.AC40,
             access='R/W',
             value_range='Any printable ASCII text.'
         )
