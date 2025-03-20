@@ -956,7 +956,8 @@ class MultiplePointHistoryResponseData(ResponseData[MultiplePointHistoryData]):
                     point_end_index: int = point_start_index + 4
                     point_bytes: bytes = points_bytes[point_start_index : point_end_index]
                     point_float: float = struct.unpack('<f', point_bytes)[0]
-                    values[timestamp][i] = point_float
+                    point_number: int = request_data.starting_history_point + i
+                    values[timestamp][point_number] = point_float
                     points_index += 4
             
             return MultiplePointHistoryData(
@@ -1461,6 +1462,7 @@ class SinglePointParameterResponseData(ResponseData[SinglePointParameterData]):
                 parameter_def.data_type.structure.format, 
                 data_bytes[start_idx:end_idx]
             )
+            print(f'Opcode 167: raw_bytes={data_bytes[start_idx:end_idx]}, start_idx={start_idx}, end_idx={end_idx}, format={parameter_def.data_type.structure.format}, size={parameter_def.data_type.structure.size}, value_tuple={value_tuple}')
             if len(value_tuple) == 1:
                 value: Any = value_tuple[0]
             else:
@@ -1555,6 +1557,7 @@ class ParameterResponseData(ResponseData[ParameterData]):
                 parameter_def.data_type.structure.format, 
                 parameter_bytes[param_data_start_idx:end_idx]
             )
+            print(f'Opcode 180: raw_bytes={parameter_bytes[param_data_start_idx:end_idx]}, start_idx={param_data_start_idx}, end_idx={end_idx}, format={parameter_def.data_type.structure.format}, size={parameter_def.data_type.structure.size}, value_tuple={value_tuple}')
             if len(value_tuple) == 1:
                 value: Any = value_tuple[0]
             else:

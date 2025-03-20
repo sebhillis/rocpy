@@ -2,6 +2,7 @@ from ipaddress import IPv4Address
 from typing import Optional, List, Dict, Type, overload
 from collections import defaultdict
 from enum import Enum
+from datetime import datetime
 from typing_extensions import Annotated
 from pydantic import BaseModel, IPvAnyAddress, field_validator, ValidationInfo, model_serializer, PlainSerializer
 from tlp_models.point_type import PointType
@@ -414,10 +415,10 @@ class HistoryDefinition:
         """Flag to indicate if all history segment/point definitions have been uploaded."""
 
         self.history_configuration_map: Dict[int, HistorySegmentConfiguration] = {}
-        """Map of History Segment Configurations indexed by segment number."""
+        """Map of History Segment Configurations indexed by history segment number."""
 
     def as_dict(self) -> Dict[str, Dict[int, Dict]]:
-        self_dict = {'history_definition': {}}
+        self_dict: dict[str, dict[int, dict]] = {'history_definition': {}}
         for index, segment in self.history_configuration_map.items():
             self_dict['history_definition'][index] = segment.model_dump()
         return self_dict
@@ -439,11 +440,58 @@ class HistoryDefinition:
                         return point_config
         raise KeyError('No history point found.')
     
-    def get_tlp_by_point(self, segment_index: int, point_number: int) -> TLPInstance:
-        segment_config: HistorySegmentConfiguration = self.history_configuration_map[segment_index]
+    def get_tlp_by_point(self, history_segment: int, point_number: int) -> TLPInstance:
+        segment_config: HistorySegmentConfiguration = self.history_configuration_map[history_segment]
         for point_config in segment_config.point_configurations:
             if point_config.history_point_number == point_number:
                 tlp: TLPInstance | None = point_config.history_log_point
                 if tlp:
                     return tlp
         raise KeyError('No TLP found.')
+    
+
+class HistoryPointData(BaseModel):
+
+    history_segment: int
+
+    point_number: int
+
+    timestamp: datetime
+
+    value: float
+
+
+class HistoryData(BaseModel):
+
+    values: list[HistoryPointData]
+
+
+
+class MeterConfig(BaseModel):
+
+    meter_number: int
+
+    station_number: int
+    
+    point_tag_id: str
+
+    point_description: str
+
+
+class StationConfig(BaseModel):
+
+    point_tag_id: str
+
+    calculation_standard: int
+
+    calculation_edition: int
+
+    history_segment: int
+
+    meter_configs: list[MeterConfig] = []
+
+    def get_meter_by_number(self, meter_number: int) -> MeterConfig:
+        for meter_config in self.meter_configs:
+            if meter_config.meter_number == meter_number:
+                return meter_config
+        raise ValueError(f'No meter found for meter number {meter_number}.')

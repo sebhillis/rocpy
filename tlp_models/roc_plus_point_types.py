@@ -6218,7 +6218,7 @@ class ORIFICE_METER_RUN_CONFIG(PointType):
             parameter_number=1,
             parameter_name='Point Description',
             parameter_desc='Description for specific meter run. Values must be printable ASCII characters.',
-            data_type=dt.AC,
+            data_type=dt.AC30,
             access='R/W',
             value_range='0x20 0x7E for each ASCII character'
         )

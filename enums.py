@@ -210,3 +210,17 @@ TransactionDataTypeDict: dict[int, ROCDataType] = {
     18: dt.TLP,
     20: dt.TIME
 }
+
+class CalculationStandard_Series_1(Enum):
+
+    AGA3_AGA7_GAS = 0
+    ISO5167_ISO9951_GAS = 1
+    ISO5167_API_CHAPTER_12_LIQUID = 2
+
+class CalculationStandard_Series_2(Enum):
+
+    AGA3_AGA7_GAS = 0
+    ISO5167_98_ISO9951_GAS = 1
+    ISO5167_98_API_CHAPTER_12_LIQUID = 2
+    ISO5167_200_ISO9951_GAS = 3
+    AGA3_AGA7_2012_GAS = 4

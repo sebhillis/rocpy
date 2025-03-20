@@ -4,15 +4,22 @@ from typing import List, Dict, Tuple, overload, AsyncGenerator, Optional, TypeVa
 import asyncio
 from contextlib import asynccontextmanager
 from loguru import logger
+from numpy import number
 from pydantic import ValidationError, BaseModel
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
+import math
 from enums import HistoryType
 from opcode_models.opcodes import (
     AlarmDataData, 
-    AlarmDataRequestData, 
+    AlarmDataRequestData,
+    DailyHistoryIndexData,
+    DailyHistoryIndexRequestData, 
     EventDataData, 
-    EventDataRequestData, 
+    EventDataRequestData,
+    HistoryTagPeriodIndexData,
+    MultiplePointHistoryData,
+    MultiplePointHistoryRequestData, 
     SinglePointHistoryData, 
     SinglePointHistoryRequestData, 
     SinglePointParameterData, 
@@ -389,7 +396,7 @@ class ROCPlusClient:
         request_data = ParameterRequestData(tlps=[tlp_def])
         response: Response[ResponseData] = await self.make_opcode_request(request_data=request_data)
         data: ParameterData = self.validate_response(response_data=response.response_data, response_data_type=ParameterData)
-        tlp_values: List[TLPValue] = self.get_named_values(data.values)
+        tlp_values: List[TLPValue] = self._get_named_values(data.values)
 
         return tlp_values[0]
         
@@ -457,7 +464,7 @@ class ROCPlusClient:
         request_data = ParameterRequestData(tlps=tlps)
         response: Response[ResponseData] = await self.make_opcode_request(request_data=request_data)
         data: ParameterData = self.validate_response(response_data=response.response_data, response_data_type=ParameterData)
-        tlp_values: List[TLPValue] = self.get_named_values(data.values)
+        tlp_values: List[TLPValue] = self._get_named_values(data.values)
         return TLPValues(values=tlp_values, timestamp=datetime.now())
         
 
@@ -501,6 +508,7 @@ class ROCPlusClient:
         Example:
             ```
             with ROCPlusClient('192.168.1.1', 10001, 1, 2).connect() as client:
+                # Read TLPs using TLPInstance
                 starting_tlp = TLPInstance(
                     parameter=PointTypes.ANALOG_INPUT.Parameters.EU_VALUE, 
                     logical_number=1
@@ -509,6 +517,7 @@ class ROCPlusClient:
                 tlp_values: TLPValues = await client.read_contiguous_tlps(starting_tlp, number_of_parameters)
                 print(tlp_values.values[4].value) # Value of TLP (103, 5, 21)
 
+                # Read TLPs using T/L/P integers
                 starting_tlp = TLPInstance(103, 1, 21)
                 number_of_parameters = 5
                 tlp_values: TLPValues = await client.read_contiguous_tlps(starting_tlp, number_of_parameters)
@@ -537,7 +546,7 @@ class ROCPlusClient:
         )
         response: Response[ResponseData] = await self.make_opcode_request(request_data=request_data)
         data: SinglePointParameterData = self.validate_response(response_data=response.response_data, response_data_type=SinglePointParameterData)
-        tlp_values: List[TLPValue] = self.get_named_values(data.values)
+        tlp_values: List[TLPValue] = self._get_named_values(data.values)
         
         return TLPValues(values=tlp_values, timestamp=datetime.now())
 
@@ -565,7 +574,7 @@ class ROCPlusClient:
                 self.logger.debug('Validating Opcode response.')
                 data: ParameterData = self.validate_response(response_data=response.response_data, response_data_type=ParameterData)
                 self.logger.debug('Yielding response data.')
-                tlp_values: List[TLPValue] = self.get_named_values(data.values)
+                tlp_values: List[TLPValue] = self._get_named_values(data.values)
                 yield tlp_values[0]
                 self.logger.debug('Waiting for poll cycle.')
                 await asyncio.sleep(poll_rate_ms / 1000)
@@ -587,7 +596,7 @@ class ROCPlusClient:
                 self.logger.debug('Validating Opcode response.')
                 data: ParameterData = self.validate_response(response_data=response.response_data, response_data_type=ParameterData)
                 self.logger.debug('Yielding response data.')
-                tlp_values: List[TLPValue] = self.get_named_values(data.values)
+                tlp_values: List[TLPValue] = self._get_named_values(data.values)
                 yield tlp_values
                 self.logger.debug('Waiting for poll cycle.')
                 await asyncio.sleep(poll_rate_ms / 1000)
@@ -599,7 +608,7 @@ class ROCPlusClient:
 
 
 
-    def get_named_values(self, tlp_values: List[TLPValue]) -> List[TLPValue]:
+    def _get_named_values(self, tlp_values: List[TLPValue]) -> List[TLPValue]:
         """
         Helper function to populate TLPValue objects with tag names.
 
@@ -696,7 +705,7 @@ class ROCPlusClient:
 
     async def get_physical_io_definition(self) -> IODefinition:
         """
-        Convenience function to retrieve both I/O Logical Numbers and Point Types.
+        Convenience method to retrieve both I/O Logical Numbers and Point Types.
 
         Returns:
             IODefinition: I/O definition object used to set self.io_definition.
@@ -768,6 +777,74 @@ class ROCPlusClient:
         self.io_definition._defined = True
         return io_def_with_names
     
+
+
+    async def get_meter_config(
+        self,
+        meter_number: int
+    ) -> MeterConfig:
+        tlp_values: TLPValues = await self.read_contiguous_tlps(
+            starting_tlp=TLPInstance(
+                parameter=PointTypes.ORIFICE_METER_RUN_CONFIG.Parameters.POINT_TAG_ID,
+                logical_number=meter_number
+            ),
+            number_of_parameters=12
+        )
+        point_tag_id = 'UNKNOWN'
+        point_description = 'UNKNOWN'
+        station_number = -1
+        
+        for tlp_value in tlp_values.values:
+            if tlp_value.parameter == PointTypes.ORIFICE_METER_RUN_CONFIG.Parameters.POINT_TAG_ID:
+                point_tag_id = tlp_value.value
+            elif tlp_value.parameter == PointTypes.ORIFICE_METER_RUN_CONFIG.Parameters.POINT_DESCRIPTION:
+                point_description = tlp_value.value
+            elif tlp_value.parameter == PointTypes.ORIFICE_METER_RUN_CONFIG.Parameters.STATION_NUMBER:
+                print(tlp_value.model_dump_json(indent=2))
+                station_number = tlp_value.value
+        
+        return MeterConfig(
+            meter_number=meter_number,
+            station_number=station_number,
+            point_description=point_description,
+            point_tag_id=point_tag_id
+        )
+
+
+
+    async def get_station_config(
+        self,
+        station_number: int
+    ) -> StationConfig:
+        tlp_values: TLPValues = await self.read_contiguous_tlps(
+            starting_tlp=TLPInstance(
+                parameter=PointTypes.STATION_PARAMETERS.Parameters.POINT_TAG_ID,
+                logical_number=station_number
+            ),
+            number_of_parameters=14
+        )
+        point_tag_id = 'UNKNOWN'
+        calculation_edition = -1
+        calculation_standard = -1
+        history_segment = -1
+        
+        for tlp_value in tlp_values.values:
+            if tlp_value.parameter == PointTypes.STATION_PARAMETERS.Parameters.POINT_TAG_ID:
+                point_tag_id = tlp_value.value
+            elif tlp_value.parameter == PointTypes.STATION_PARAMETERS.Parameters.CALCULATION_STANDARD:
+                calculation_standard = tlp_value.value
+            elif tlp_value.parameter == PointTypes.STATION_PARAMETERS.Parameters.EDITION_OF_CALCULATIONS:
+                calculation_edition = tlp_value.value
+            elif tlp_value.parameter == PointTypes.STATION_PARAMETERS.Parameters.HISTORY_SEGMENT:
+                history_segment = tlp_value.value
+        
+        return StationConfig(
+            point_tag_id=point_tag_id,
+            calculation_edition=calculation_edition,
+            calculation_standard=calculation_standard,
+            history_segment=history_segment
+        )
+
 
 
     async def get_opcode_table_definition(self, table_index: int) -> ConfigurableOpcodeTableDefinition:
@@ -852,7 +929,12 @@ class ROCPlusClient:
         return self.configurable_opcode_tables_definition
     
 
-    async def get_history_segment_point_configuration(self, segment_index: int, point_number: int) -> HistorySegmentPointConfiguration:
+    async def get_history_segment_point_configuration(
+        self, 
+        segment_index: int,
+        point_number: int,
+        include_tag_name: bool = False
+    ) -> HistorySegmentPointConfiguration:
         """
         Retrieve the configuration for a single History point.
 
@@ -864,7 +946,7 @@ class ROCPlusClient:
             HistorySegmentPointConfiguration: History point configuration model instance.
         """
         # Derive point type name from segment index
-        point_type_name = f'HISTORY_SEGMENT_{segment_index}_POINT_CONFIGURATION'
+        point_type_name: str = f'HISTORY_SEGMENT_{segment_index}_POINT_CONFIGURATION'
         
         # Read contiguous parameters for config data
         starting_tlp: TLPInstance = TLPInstance.from_integers(
@@ -880,11 +962,21 @@ class ROCPlusClient:
         # Generate TLP Instance from TLP integers for history log point
         history_point_tlp = values.values[2].value
         if history_point_tlp[0] == 0:
-            history_log_point = None
+            history_log_point: TLPInstance | None = None
         else:
-            history_log_point = TLPInstance.from_integers(point_type=history_point_tlp[0], logical_number=history_point_tlp[1], parameter=history_point_tlp[2])
+            history_log_point: TLPInstance | None = TLPInstance.from_integers(point_type=history_point_tlp[0], logical_number=history_point_tlp[1], parameter=history_point_tlp[2])
             if self.io_definition._defined:
                 history_log_point.tag_name = self.io_definition.get_point_definition(tlp_instance=history_log_point).point_tag_id
+            else:
+                if include_tag_name:
+                    tag_name_value: TLPValue = await self.read_tlp(
+                        tlp_def=(
+                            history_log_point.point_type.point_type_number, 
+                            history_log_point.logical_number, 
+                            history_log_point.point_type.get_parameter_by_name('POINT_TAG_ID').parameter_number
+                        )
+                    )
+                    history_log_point.tag_name = tag_name_value.value
 
         # Instantiate a point definition
         return HistorySegmentPointConfiguration(
@@ -1000,6 +1092,7 @@ class ROCPlusClient:
         return self.history_definition
     
 
+
     async def get_config_json(self) -> str:
         """
         Retrieve a JSON containing comprehensive ROC configuration data.
@@ -1036,6 +1129,7 @@ class ROCPlusClient:
         return config_json
     
 
+
     async def get_history_today_yesterday_min_max(self, history_segment: int, history_point: int) -> TodayYestMinMaxData:
         """
         Retrieve the minimum and maximum values from today and yesterday for a history segment and point.
@@ -1051,6 +1145,8 @@ class ROCPlusClient:
         data: TodayYestMinMaxData = self.validate_response(response_data=response.response_data, response_data_type=TodayYestMinMaxData)
         return data
     
+
+
     async def get_alarm_data(self, start_alarm_log_index: int, number_of_alarms: int) -> AlarmDataData:
         """
         Retrieve alarm records from alarm log.
@@ -1068,6 +1164,8 @@ class ROCPlusClient:
         data: AlarmDataData = self.validate_response(response_data=response.response_data, response_data_type=AlarmDataData)
         return data
     
+
+
     async def get_event_data(self, start_event_log_index: int, number_of_events: int) -> EventDataData:
         """
         Retrieve event records from event log.
@@ -1085,82 +1183,515 @@ class ROCPlusClient:
         data: EventDataData = self.validate_response(response_data=response.response_data, response_data_type=EventDataData)
         return data
     
-    async def get_single_point_history_data(
-        self, 
-        segment_index: int, 
-        point_number: int, 
-        history_type: HistoryType, 
-        starting_history_segment: int, 
-        number_of_values: int
-    ) -> SinglePointHistoryData:
-        """
-        Retrieve historical values for a single history point.
 
-        Returns:
-            SinglePointHistoryData: Model instance with all data returned by Opcode 135 request.
-        """
-        self.logger.debug('History data requested. Constructing request.')
-        request_data = SinglePointHistoryRequestData(
-            history_segment=segment_index,
-            history_point_number=point_number,
-            history_type=history_type,
-            starting_history_segment_index=starting_history_segment,
-            number_of_values=number_of_values
-        )
+
+    async def get_history_index_for_day(
+        self,
+        history_segment: int,
+        day: int,
+        month: int
+    ) -> DailyHistoryIndexData:
+        self.logger.debug('History index requested. Constructing request.')
+        request_data = DailyHistoryIndexRequestData(history_segment=history_segment, day_requested=day, month_requested=month)
         self.logger.debug('Submitting Opcode request.')
         response: Response[ResponseData] = await self.make_opcode_request(request_data=request_data)
         self.logger.debug('Validating Opcode response.')
-        data: SinglePointHistoryData = self.validate_response(response_data=response.response_data, response_data_type=SinglePointHistoryData)
+        data: DailyHistoryIndexData = self.validate_response(response_data=response.response_data, response_data_type=DailyHistoryIndexData)
+        return data
+
+
+
+    # @overload
+    # async def get_single_point_history_data(
+    #     self, 
+    #     history_segment: int, 
+    #     point_number: int, 
+    #     history_type: HistoryType, 
+    #     number_of_values: int,
+    #     starting_history_index: int
+    # ) -> SinglePointHistoryData:
+    #     ...
+
+    
+    # @overload
+    # async def get_single_point_history_data(
+    #     self,
+    #     history_segment: int,
+    #     point_number: int,
+    #     history_type: HistoryType,
+    #     number_of_values: int,
+    #     starting_history_index: Tuple[int, int]
+    # ) -> SinglePointHistoryData:
+    #     ...
+
+
+    # @overload
+    # async def get_single_point_history_data(
+    #     self,
+    #     history_segment: int,
+    #     point_number: int,
+    #     history_type: HistoryType,
+    #     number_of_values: int,
+    #     starting_history_index: datetime
+    # ) -> SinglePointHistoryData:
+    #     ...
+
+
+    # async def get_single_point_history_data(
+    #     self, 
+    #     history_segment: int, 
+    #     point_number: int, 
+    #     history_type: HistoryType, 
+    #     number_of_values: int,
+    #     starting_history_index: int | Tuple[int, int] | datetime
+    # ) -> SinglePointHistoryData:
+    #     """
+    #     Retrieve historical values for a single history point.
+
+    #     Args:
+    #         history_segment (int): History segment from which to query history.
+    #         point_number (int): Point number for which to query history.
+    #         history_type (HistoryType): Type of historical data to query.
+    #         starting_history_index (int | Tuple[int, int] | datetime): The starting index for the history query.
+    #             Valid inputs are:
+    #                 int: Starting historical index integer, as stored in the ROC.
+    #                 Tuple[int, int]: Starting month and day, for which the numerical index will be retrieved. If MINUTE is
+    #                     provided as the history type, will default to minute 0.
+    #                 datetime: Starting timestamp; the numerical index will be retrieved for the corresponding month and day. 
+    #             Valid ranges for integer index are: 
+    #                 0 to 59 for MINUTE
+    #                 0 to (# daily entries in history point - 1) for DAILY or DAILY_TIME_STAMPS
+    #                 0 to (# periodic entries in history point - 1) for PERIODIC or PERIODIC_TIME_STAMPS
+    #         number_of_values (int): Number of historical values to return.
+
+    #     Returns:
+    #         SinglePointHistoryData: Model instance with all data returned by Opcode 135 request.
+
+    #     Example:
+    #         ```
+    #         with ROCPlusClient('192.168.1.1', 10001, 1, 2).connect() as client:
+    #             history_segment: int = 0
+    #             point_number: int = 12
+    #             history_type: HistoryType = HistoryType.DAILY
+    #             number_of_values: int = 6
+                
+    #             # Query history segment 0, point 12 for daily values from index 10-15
+    #             starting_history_index: int = 10
+    #             response: SinglePointHistoryData = await client.get_single_point_history_data(
+    #                 history_segment=history_segment,
+    #                 point_number=point_number,
+    #                 history_type=history_type,
+    #                 starting_history_segment_index=starting_history_segment_index,
+    #                 number_of_values=number_of_values
+    #             )
+
+    #             # Query history segment 0, point 12 for daily values from 3/5 to 3/11
+    #             start_history_segment_index: Tuple[int, int] = (3, 5)
+    #             response: SinglePointHistoryData = await client.get_single_point_history_data(
+    #                 history_segment=history_segment,
+    #                 point_number=point_number,
+    #                 history_type=history_type,
+    #                 starting_history_segment_index=starting_history_segment_index,
+    #                 number_of_values=number_of_values
+    #             )
+
+    #             # Query history segment 0, point 12 for daily values from 3/5 to 3/11
+    #             import datetime
+    #             start_history_segment_index: datetime = datetime.datetime(2025, 3, 5)
+    #             response: SinglePointHistoryData = await client.get_single_point_history_data(
+    #                 history_segment=history_segment,
+    #                 point_number=point_number,
+    #                 history_type=history_type,
+    #                 starting_history_segment_index=starting_history_segment_index,
+    #                 number_of_values=number_of_values
+    #             )
+    #         ```
+    #     """
+    #     self.logger.debug('History data requested. Constructing request.')
+
+    #     # Determine starting history segment index from input argument
+    #     starting_history_segment_index: int = -1
+    #     if isinstance(starting_history_index, int):
+    #         starting_history_segment_index = starting_history_index
+    #     elif isinstance(starting_history_index, tuple):
+    #         month: int = starting_history_index[0]
+    #         day: int = starting_history_index[1]
+    #         history_index_data: DailyHistoryIndexData = await self.get_history_index_for_day(
+    #             history_segment=history_segment, 
+    #             month=month, 
+    #             day=day
+    #         )
+    #         if history_type == HistoryType.MINUTE:
+    #             starting_history_segment_index = 0
+    #         elif history_type in [HistoryType.DAILY, HistoryType.DAILY_TIME_STAMPS]:
+    #             starting_history_segment_index = history_index_data.daily_index
+    #         elif history_type in [HistoryType.PERIODIC, HistoryType.PERIODIC_TIME_STAMPS]:
+    #             starting_history_segment_index = history_index_data.starting_periodic_index
+    #     elif isinstance(starting_history_index, datetime):
+    #         month: int = starting_history_index.month
+    #         day: int = starting_history_index.day
+    #         history_index_data: DailyHistoryIndexData = await self.get_history_index_for_day(
+    #             history_segment=history_segment, 
+    #             month=month, 
+    #             day=day
+    #         )
+    #         if history_type == HistoryType.MINUTE:
+    #             starting_history_segment_index = starting_history_index.minute
+    #         elif history_type in [HistoryType.DAILY, HistoryType.DAILY_TIME_STAMPS]:
+    #             starting_history_segment_index = history_index_data.daily_index
+    #         elif history_type in [HistoryType.PERIODIC, HistoryType.PERIODIC_TIME_STAMPS]:
+    #             starting_history_segment_index = history_index_data.starting_periodic_index
+
+    #     # Request single point history data from ROC
+    #     request_data = SinglePointHistoryRequestData(
+    #         history_segment=history_segment,
+    #         history_point_number=point_number,
+    #         history_type=history_type,
+    #         starting_history_segment_index=starting_history_segment_index,
+    #         number_of_values=number_of_values
+    #     )
+    #     self.logger.debug('Submitting Opcode request.')
+    #     response: Response[ResponseData] = await self.make_opcode_request(request_data=request_data)
+    #     self.logger.debug('Validating Opcode response.')
+    #     data: SinglePointHistoryData = self.validate_response(response_data=response.response_data, response_data_type=SinglePointHistoryData)
+    #     return data
+
+
+
+    # async def get_single_point_timestamped_history_data(
+    #     self,
+    #     history_segment: int,
+    #     point_number: int,
+    #     starting_history_segment_index: int,
+    #     number_of_values: int,
+    #     history_type: HistoryType
+    # ) -> TLPValues:
+    #     """
+    #     Convenience method to retrieve both timestamps and values for periodic or daily history.
+
+    #     Args:
+    #         history_segment (int): History segment from which to query history.
+    #         point_number (int): Point number for which to query history.
+    #         starting_history_segment_index (int): Starting index for query, from 0 to (# daily/periodic entries in history point - 1).
+    #         number_of_values (int): Number of daily/periodic history values to return.
+    #         history_type (HistoryType): History type to query. Valid values are HistoryType.DAILY or HistoryType.PERIODIC.
+
+    #     Raises:
+    #         TypeError: Invalid type for values/timestamps returned by ROC.
+
+    #     Returns:
+    #         TLPValues: TLPValues instance containing a TLPValue instance for each daily/periodic timestamped value.
+    #     """
+    #     # Verify that history definition is initialized
+    #     if not(self.history_definition._defined):
+    #         await self.initialize_history_definition()
+
+    #     # Get TLP for history point configuration from history definition
+    #     tlp: TLPInstance = self.history_definition.get_tlp_by_point(
+    #         history_segment=history_segment, 
+    #         point_number=point_number
+    #     )
+
+    #     # History point data retrieval is limited to EITHER values OR timestamps, so here
+    #     # we do both and combine.
+
+    #     if history_type in [HistoryType.PERIODIC, HistoryType.DAILY]:
+    #         value_type: HistoryType = history_type
+    #         if history_type == HistoryType.PERIODIC:
+    #             timestamp_type: HistoryType = HistoryType.PERIODIC_TIME_STAMPS
+    #         elif history_type == HistoryType.DAILY_TIME_STAMPS:
+    #             timestamp_type: HistoryType = HistoryType.DAILY_TIME_STAMPS
+    #         else:
+    #             raise TypeError('Invalid history type argument. Please specify either HistoryType.DAILY or HistoryType.PERIODIC.')
+    #     else:
+    #         raise TypeError('Invalid history type argument. Please specify either HistoryType.DAILY or HistoryType.PERIODIC.')
+
+    #     # Get history data for history point
+    #     value_data: SinglePointHistoryData = await self.get_single_point_history_data(
+    #         history_segment=history_segment, 
+    #         point_number=point_number,
+    #         history_type=value_type,
+    #         number_of_values=number_of_values,
+    #         starting_history_segment_index=starting_history_segment_index
+    #     )
+
+    #     # Get timestamps if possible
+    #     timestamp_data: SinglePointHistoryData = await self.get_single_point_history_data(
+    #         history_segment=history_segment, 
+    #         point_number=point_number,
+    #         history_type=timestamp_type,
+    #         number_of_values=number_of_values,
+    #         starting_history_segment_index=starting_history_segment_index
+    #     )
+
+    #     # Create iterable of values, timestamps
+    #     history_data: List[tuple] = list(zip(value_data.values, timestamp_data.values))
+
+    #     # Create TLP values for history data
+    #     tlp_values: List[TLPValue] = []
+    #     for value, timestamp in history_data:
+    #         if isinstance(value, float) and isinstance(timestamp, datetime):
+    #             tlp_value: TLPValue = TLPValue.from_tlp_instance(
+    #                 tlp=tlp,
+    #                 value=value,
+    #                 timestamp=timestamp
+    #             )
+    #             tlp_values.append(tlp_value)
+    #         else:
+    #             raise TypeError(f'Unexpected type of value and timestamp: value | {type(value)}; timestamp | {type(timestamp)}')
+        
+    #     tlp_values_obj = TLPValues(values=tlp_values)
+        
+    #     return tlp_values_obj
+    
+
+
+    # async def get_single_point_daily_history(
+    #     self,
+    #     history_segment: int,
+    #     point_number: int,
+    #     starting_history_segment_index: int,
+    #     number_of_values: int
+    # ) -> TLPValues:
+    #     """
+    #     Convenience method to retrieve timestamped daily history data.
+
+    #     Args:
+    #         history_segment (int): History segment from which to query history.
+    #         point_number (int): Point number for which to query history.
+    #         starting_history_segment_index (int): Starting index for query, from 0 to (# daily entries in history point - 1).
+    #         number_of_values (int): Number of daily history values to return.
+
+    #     Returns:
+    #         TLPValues: TLPValues instance containing a TLPValue instance for each daily timestamped value.
+    #     """
+    #     return await self.get_single_point_timestamped_history_data(
+    #         history_segment=history_segment,
+    #         point_number=point_number,
+    #         starting_history_segment_index=starting_history_segment_index,
+    #         number_of_values=number_of_values,
+    #         history_type=HistoryType.DAILY
+    #     )
+    
+
+
+    # async def get_single_point_periodic_history(
+    #     self,
+    #     history_segment: int,
+    #     point_number: int,
+    #     starting_history_segment_index: int,
+    #     number_of_values: int
+    # ) -> TLPValues:
+    #     """
+    #     Convenience method to retrieve timestamped periodic history data.
+
+    #     Args:
+    #         history_segment (int): History segment from which to query history.
+    #         point_number (int): Point number for which to query history.
+    #         starting_history_segment_index (int): Starting index for query, from 0 to (# periodic entries in history point - 1).
+    #         number_of_values (int): Number of periodic history values to return.
+
+    #     Returns:
+    #         TLPValues: TLPValues instance containing a TLPValue instance for each periodic timestamped value.
+    #     """
+    #     return await self.get_single_point_timestamped_history_data(
+    #         history_segment=history_segment,
+    #         point_number=point_number,
+    #         starting_history_segment_index=starting_history_segment_index,
+    #         number_of_values=number_of_values,
+    #         history_type=HistoryType.PERIODIC
+    #     )
+    
+
+
+    async def get_multiple_point_history_data(
+        self,
+        history_segment: int,
+        history_type: HistoryType,
+        starting_point_number: int,
+        number_of_points: int,
+        number_of_time_periods: int,
+        starting_history_index: int | Tuple[int, int] | datetime
+    ) -> MultiplePointHistoryData:
+        
+        # Determine starting history segment index from input argument
+        starting_history_segment_index: int = -1
+        if isinstance(starting_history_index, int):
+            starting_history_segment_index = starting_history_index
+        elif isinstance(starting_history_index, tuple):
+            month: int = starting_history_index[0]
+            day: int = starting_history_index[1]
+            history_index_data: DailyHistoryIndexData = await self.get_history_index_for_day(
+                history_segment=history_segment, 
+                month=month, 
+                day=day
+            )
+            if history_type == HistoryType.MINUTE:
+                starting_history_segment_index = 0
+            elif history_type in [HistoryType.DAILY, HistoryType.DAILY_TIME_STAMPS]:
+                starting_history_segment_index = history_index_data.daily_index
+            elif history_type in [HistoryType.PERIODIC, HistoryType.PERIODIC_TIME_STAMPS]:
+                starting_history_segment_index = history_index_data.starting_periodic_index
+        elif isinstance(starting_history_index, datetime):
+            month: int = starting_history_index.month
+            day: int = starting_history_index.day
+            history_index_data: DailyHistoryIndexData = await self.get_history_index_for_day(
+                history_segment=history_segment, 
+                month=month, 
+                day=day
+            )
+            if history_type == HistoryType.MINUTE:
+                starting_history_segment_index = starting_history_index.minute
+            elif history_type in [HistoryType.DAILY, HistoryType.DAILY_TIME_STAMPS]:
+                starting_history_segment_index = history_index_data.daily_index
+            elif history_type in [HistoryType.PERIODIC, HistoryType.PERIODIC_TIME_STAMPS]:
+                starting_history_segment_index = history_index_data.starting_periodic_index
+
+        request_data = MultiplePointHistoryRequestData(
+            history_segment=history_segment,
+            history_segment_index=starting_history_segment_index,
+            history_type=history_type,
+            starting_history_point=starting_point_number, 
+            number_of_history_points=number_of_points, 
+            number_of_time_periods=number_of_time_periods
+        )
+
+        response: Response[ResponseData] = await self.make_opcode_request(request_data=request_data)
+        data: MultiplePointHistoryData = self.validate_response(response_data=response.response_data, response_data_type=MultiplePointHistoryData)
         return data
     
-    async def get_daily_history_data(
+
+    async def get_history_data(
         self,
-        segment_index: int,
-        point_number: int,
-        starting_history_segment: int,
-        number_of_values: int
-    ) -> TLPValues:
+        history_segment: int,
+        history_type: HistoryType,
+        start_datetime: datetime,
+        end_datetime: datetime,
+        point_numbers: List[int],
+        include_point_configs: bool = False
+    ) -> HistoryData | TLPValues:
         
-        # Get TLP for history point configuration
+        # Verify that history definition is initialized
         if not(self.history_definition._defined):
-            await self.initialize_history_definition()
-        tlp: TLPInstance = self.history_definition.get_tlp_by_point(
-            segment_index=segment_index, 
-            point_number=point_number
-        )
+            segment_config: HistorySegmentConfiguration = await self.get_history_segment_configuration(
+                segment_index=history_segment, 
+                include_point_definitions=False
+            )
+        else:
+            segment_config: HistorySegmentConfiguration = self.history_definition.history_configuration_map[history_segment]
+            
 
-        # Get history data for history point
-        value_data: SinglePointHistoryData = await self.get_single_point_history_data(
-            segment_index=segment_index, 
-            point_number=point_number,
-            history_type=HistoryType.DAILY,
-            number_of_values=number_of_values,
-            starting_history_segment=starting_history_segment
-        )
+        # Determine starting history index and number of periods from timestamp arguments
+        if history_type == HistoryType.MINUTE:
+            starting_history_segment_index: int = start_datetime.minute
+            ending_history_segment_index: int = end_datetime.minute
+            number_of_time_periods: int = ending_history_segment_index - starting_history_segment_index + 1
+        elif history_type == HistoryType.DAILY:
+            month: int = start_datetime.month
+            day: int = start_datetime.day
+            history_index_data: DailyHistoryIndexData = await self.get_history_index_for_day(
+                history_segment=history_segment, 
+                month=month, 
+                day=day
+            )
+            starting_history_segment_index: int = history_index_data.daily_index
+            time_diff: timedelta = end_datetime - start_datetime
+            number_of_time_periods: int = time_diff.days + 1
+            print(f'Starting index: {starting_history_segment_index}')
+            print(f'Number of time periods: {number_of_time_periods}')
+        elif history_type == HistoryType.PERIODIC:
+            month: int = start_datetime.month
+            day: int = start_datetime.day
+            history_index_data: DailyHistoryIndexData = await self.get_history_index_for_day(
+                history_segment=history_segment, 
+                month=month, 
+                day=day
+            )
+            starting_history_segment_index: int = history_index_data.starting_periodic_index
+            period_minutes: int = segment_config.periodic_sample_rate
+            time_diff: timedelta = end_datetime - start_datetime
+            minute_diff: int = int(time_diff.seconds / 60)
+            number_of_time_periods: int = int(minute_diff / period_minutes)
+        else:
+            starting_history_segment_index = 0
+            number_of_time_periods = 1
 
-        # Get timestamps if possible
-        timestamp_data: SinglePointHistoryData = await self.get_single_point_history_data(
-            segment_index=segment_index, 
-            point_number=point_number,
-            history_type=HistoryType.DAILY_TIME_STAMPS,
-            number_of_values=number_of_values,
-            starting_history_segment=starting_history_segment
-        )
+        # Determine point numbers to query
+        if len(point_numbers) == 1:
+            starting_point_number: int = point_numbers[0]
+            ending_point_number: int = point_numbers[0]
+            point_span: int = 1
+        else:
+            ## For multiple points, query the entire span. Even though it feels wasteful for 
+            ## non-contiguous points, it is more efficient than making a single-point query 
+            ## for each non-contiguous
+            ## point 100% of the time.
+            starting_point_number: int = min(point_numbers)
+            ending_point_number: int = max(point_numbers)
+            point_span: int = ending_point_number - starting_point_number + 1
+            print(f'Starting point number: {starting_point_number}')
+            print(f'Point span: {point_span}')
 
-        # Create iterable of values, timestamps
-        history_data: List[tuple] = list(zip(value_data.values, timestamp_data.values))
+        # Determine query batch parameters based on time period count and point span
+        time_periods_per_query: int = min(number_of_time_periods, 30) # maximum of 30 time periods, even with single point
+        max_points_per_query: int = math.floor(60 / time_periods_per_query) - 2 # (# of points + 1)*(# of time periods) cannot exceed 60
+        point_batches: int = math.ceil(point_span / max_points_per_query)
+        period_batches: int = math.ceil(number_of_time_periods / time_periods_per_query)
+        print(f'Time periods per query: {time_periods_per_query}')
+        print(f'Points per query: {max_points_per_query}')
 
-        # Create TLP values for history data
-        tlp_values: List[TLPValue] = []
-        for value, timestamp in history_data:
-            if isinstance(value, float) and isinstance(timestamp, datetime):
-                tlp_value = TLPValue.from_tlp_instance(
-                    tlp=tlp,
-                    value=value,
-                    timestamp=timestamp
+        all_values: list[HistoryPointData] = []
+        first_point_number: int = starting_point_number
+        for i in range(point_batches):
+            for j in range(period_batches):
+                
+                # Query history data for current batch
+                first_point_number: int = starting_point_number + (i * max_points_per_query)
+                starting_period_index: int = starting_history_segment_index + (j * time_periods_per_query)
+                number_of_points: int = min(max_points_per_query, ending_point_number - first_point_number + 1)
+
+                print(f'Query {i} | Starting Point: {first_point_number} | Number of Points: {number_of_points} | Time Periods: {number_of_time_periods} | Starting Index: {starting_period_index}')
+                data: MultiplePointHistoryData = await self.get_multiple_point_history_data(
+                    history_segment=history_segment,
+                    history_type=history_type,
+                    starting_point_number=first_point_number,
+                    number_of_points=number_of_points,
+                    number_of_time_periods=time_periods_per_query,
+                    starting_history_index=starting_period_index
                 )
-                tlp_values.append(tlp_value)
-            else:
-                raise TypeError(f'Unexpected type of value and timestamp: value | {type(value)}; timestamp | {type(timestamp)}')
-        tlp_values_obj = TLPValues(values=tlp_values)
-        return tlp_values_obj
+
+                # Add to final return values if included in provided point numbers
+                for timestamp, values in data.values.items():
+                    for point_number, value in values.items():
+                        if point_number in point_numbers:
+                            all_values.append(
+                                HistoryPointData(
+                                    history_segment=history_segment,
+                                    point_number=point_number, 
+                                    timestamp=timestamp, 
+                                    value=value
+                                )
+                            )
+
+        if include_point_configs:
+            point_configs: list[HistorySegmentPointConfiguration] = []
+            for point_number in point_numbers:
+                point_configs.append(
+                    await self.get_history_segment_point_configuration(
+                        segment_index=history_segment, 
+                        point_number=point_number,
+                        include_tag_name=True
+                    )
+                )
+            all_tlp_values: list[TLPValue] = []
+            for value in all_values:
+                for config in point_configs:
+                    if config.history_point_number == value.point_number:
+                        tlp_instance: TLPInstance | None = config.history_log_point
+                        if tlp_instance is None:
+                            raise ValueError(f'Invalid TLP for history point {value.point_number}')
+                        tlp_value: TLPValue = TLPValue.from_tlp_instance(tlp=tlp_instance, value=value.value, timestamp=value.timestamp)
+                        all_tlp_values.append(tlp_value)
+            return TLPValues(values=all_tlp_values)
+        else:
+            return HistoryData(values=all_values)
