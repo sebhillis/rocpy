@@ -1,15 +1,12 @@
-from re import L
-from tracemalloc import start
-from typing import List, Dict, Tuple, overload, AsyncGenerator, Optional, TypeVar, Type, Union
+from typing import List, Dict, Tuple, overload, AsyncGenerator, TypeVar, Type
 import asyncio
 from contextlib import asynccontextmanager
 from loguru import logger
-from numpy import number
 from pydantic import ValidationError, BaseModel
 from datetime import datetime, timedelta
 import json
 import math
-from enums import HistoryType
+from enums import HistoryType, ROCSubType
 from opcode_models.opcodes import (
     AlarmDataData, 
     AlarmDataRequestData,
@@ -17,13 +14,11 @@ from opcode_models.opcodes import (
     DailyHistoryIndexRequestData, 
     EventDataData, 
     EventDataRequestData,
-    HistoryTagPeriodIndexData,
     MultiplePointHistoryData,
     MultiplePointHistoryRequestData, 
-    SinglePointHistoryData, 
-    SinglePointHistoryRequestData, 
     SinglePointParameterData, 
-    SinglePointParameterRequestData, 
+    SinglePointParameterRequestData,
+    SystemConfigData, 
     TodayYestMinMaxData, 
     TodayYestMinMaxRequestData
 )
@@ -42,7 +37,6 @@ from client.models import (
 from tlp_models.point_types import PointTypeNotFoundError
 from tlp_models.tlp import TLPInstance, TLPValue, TLPValues
 from client.async_tcp_generic import TCPClient
-import struct
 
 class ROCPlusClient:
     """
@@ -248,7 +242,7 @@ class ROCPlusClient:
     
 
 
-    async def make_opcode_request(self, request_data: RequestData) -> Response[ResponseData]:
+    async def make_opcode_request(self, request_data: RequestData) -> Response:
         """
         Send a single Opcode request and get response.
 
@@ -262,7 +256,7 @@ class ROCPlusClient:
             request_data (RequestData): Instance of RequestData subclass specific to the Opcode.
 
         Returns:
-            Response[ResponseData]: Response model subclass instance specific to the Opcode.
+            Response: Response model subclass instance specific to the Opcode.
 
         Example:
             ```
@@ -294,8 +288,10 @@ class ROCPlusClient:
             await self._connection.write_to_stream(request_packet)
             self.logger.debug('Request written successfully. Reading response from stream.')
             response_packet: bytes = await self._connection.read_from_stream()
+            print(response_packet)
+            print(response_packet[-2:])
             self.logger.debug('Response read successfully. Decoding binary payload into response object.')
-            response: Response = Response.from_binary(raw_response=response_packet, request_data=request_data)
+            response: Response = Response.decode(raw_response=response_packet, request_data=request_data)
             self.logger.debug('Response decoded successfully. Returning response object.')
             return response
         except ValidationError as e:
@@ -837,11 +833,21 @@ class ROCPlusClient:
                 calculation_edition = tlp_value.value
             elif tlp_value.parameter == PointTypes.STATION_PARAMETERS.Parameters.HISTORY_SEGMENT:
                 history_segment = tlp_value.value
+
+        # Get calculation standard enum based on ROC Series
+        roc_config: SystemConfigData = await self.get_system_config()
+        if roc_config.roc_subtype == ROCSubType.SERIES_1:
+            calculation_standard_enum = CalculationStandard_Series_1(calculation_standard)
+        elif roc_config.roc_subtype == ROCSubType.SERIES_2:
+            calculation_standard_enum = CalculationStandard_Series_2(calculation_standard)
+        else:
+            raise TypeError('Invalid ROC Subtype. Could not determine calculation standard.')
         
         return StationConfig(
+            station_number=station_number,
             point_tag_id=point_tag_id,
             calculation_edition=calculation_edition,
-            calculation_standard=calculation_standard,
+            calculation_standard=calculation_standard_enum,
             history_segment=history_segment
         )
 

@@ -4,13 +4,13 @@ from collections import defaultdict
 from enum import Enum
 from datetime import datetime
 from typing_extensions import Annotated
-from pydantic import BaseModel, IPvAnyAddress, field_validator, ValidationInfo, model_serializer, PlainSerializer
+from pydantic import BaseModel, IPvAnyAddress, field_validator, ValidationInfo, field_serializer, PlainSerializer
 from tlp_models.point_type import PointType
 from tlp_models.point_types import PointTypes
 from tlp_models.parameter import Parameter
 from tlp_models.tlp import TLPInstance
 from client.exceptions import *
-from enums import HistoryArchiveType, HistoryAveragingRateType
+from enums import CalculationStandard_Series_1, CalculationStandard_Series_2, HistoryArchiveType, HistoryAveragingRateType
 
 class ROCClientDefinition(BaseModel):
     """
@@ -470,25 +470,44 @@ class HistoryData(BaseModel):
 class MeterConfig(BaseModel):
 
     meter_number: int
+    """Meter number. Equivalent to the 'logical number' of the respective TLPs."""
 
     station_number: int
+    """Station number. Equivalent to the 'logical number' of the respective TLPs."""
     
     point_tag_id: str
+    """Name of the meter."""
 
     point_description: str
+    """Description of the meter."""
 
 
 class StationConfig(BaseModel):
 
-    point_tag_id: str
+    station_number: int
+    """Station number. Equivalent to the 'logical number' of the respective TLPs."""
 
-    calculation_standard: int
+    point_tag_id: str
+    """Name of the station."""
+
+    calculation_standard: Annotated[
+        CalculationStandard_Series_1 | CalculationStandard_Series_2, 
+        PlainSerializer(
+            lambda x: {'name': x.name, 'value': x.value}, 
+            return_type=dict, 
+            when_used='always'
+        )
+    ]
+    """Calculation standard being used."""
 
     calculation_edition: int
+    """Calculation edition being used."""
 
     history_segment: int
+    """History segment used for storing station data."""
 
     meter_configs: list[MeterConfig] = []
+    """Meter configurations."""
 
     def get_meter_by_number(self, meter_number: int) -> MeterConfig:
         for meter_config in self.meter_configs:

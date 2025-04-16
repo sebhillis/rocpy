@@ -1,36 +1,52 @@
-from enum import Enum
+from enum import Enum, IntEnum
+from pydantic import model_serializer
 from roc_data_types import ParameterDataTypes as dt, ROCDataType
 
-class ROCOperatingMode(Enum):
+class RootIntEnum(IntEnum):
+    description: str
+    def __new__(cls, value, description):
+        obj = int.__new__(cls, value)
+        obj._value_ = value
+        obj.description = description
+        return obj
+
+    @property
+    def serialized(self):
+        return {
+            'Value': self.value,
+            'Description': self.description
+        }
+
+class ROCOperatingMode(RootIntEnum):
     """ROC Operating Mode"""
-    FIRMWARE_UPDATE_MODE = 0
-    RUN_MODE = 1
+    FIRMWARE_UPDATE_MODE = 0, 'Firmware Update Mode'
+    RUN_MODE = 1, 'Run Mode'
 
-class LogicalCompatibilityStatus(Enum):
+class LogicalCompatibilityStatus(RootIntEnum):
     """ROC Logical Compatibility Status"""
-    _16_POINTS_PER_SLOT_9_SLOTS_MAX = 0
-    _16_POINTS_PER_SLOT_14_SLOTS_MAX = 1
-    _8_POINTS_PER_SLOT_27_SLOTS_MAX = 2
+    _16_POINTS_PER_SLOT_9_SLOTS_MAX = 0, '16 Points/Slot, 9 Slots Max'
+    _16_POINTS_PER_SLOT_14_SLOTS_MAX = 1, '16 Points/Slot, 14 Slots Max'
+    _8_POINTS_PER_SLOT_27_SLOTS_MAX = 2, '8 Points/Slot, 27 Slots Max'
 
-class OpcodeRevision(Enum):
+class OpcodeRevision(RootIntEnum):
     """Revision of Opcode 6"""
-    ORIGINAL = 0
-    EXTENDED_FOR_ADDITIONAL_POINT_TYPES = 1
+    ORIGINAL = 0, 'Original'
+    EXTENDED_FOR_ADDITIONAL_POINT_TYPES = 1, 'Extended for Additional Point Types'
 
-class ROCSubType(Enum):
+class ROCSubType(RootIntEnum):
     """Subtype of ROC Device"""
-    SERIES_2 = 0
-    SERIES_1 = 1
+    SERIES_2 = 0, 'Series 2'
+    SERIES_1 = 1, 'Series 1'
 
-class ROCType(Enum):
+class ROCType(RootIntEnum):
     """Type of ROC Device"""
-    ROCPAC_ROC300_SERIES = 1
-    FLO_BOSS_407 = 2
-    FLASHPAC_ROC300_SERIES = 3
-    FLO_BOSS_503 = 4
-    FLO_BOSS_504 = 5
-    ROC_800 = 6
-    DL_800 = 11
+    ROCPAC_ROC300_SERIES = 1, 'ROCPAC ROC300-Series'
+    FLO_BOSS_407 = 2, 'FloBoss 407'
+    FLASHPAC_ROC300_SERIES = 3, 'FlashPAC ROC300-Series'
+    FLO_BOSS_503 = 4, 'FloBoss 503'
+    FLO_BOSS_504 = 5, 'FloBoss 504'
+    ROC_800 = 6, 'ROC800 (809/827)'
+    DL_800 = 11, 'DL8000'
 
 class HistoryArchiveType(Enum):
     """Historical Data Archive Method"""

@@ -7,7 +7,6 @@ from .opcodes import (
     MessageModels,
     SystemConfigData,
     SystemConfigRequestData,
-    SystemConfigResponseData,
     ReadClockData,
     ReadClockRequestData,
     ReadClockResponseData,

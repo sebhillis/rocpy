@@ -4,7 +4,7 @@ import struct
 from datetime import datetime
 from urllib import request
 from numpy import number
-from pydantic import BaseModel, PlainSerializer, Field, RootModel, model_validator
+from pydantic import BaseModel, PlainSerializer, Field, RootModel, field_serializer, model_validator
 from enum import Enum
 from typing_extensions import Annotated, Self
 from abc import ABC, abstractmethod
@@ -23,6 +23,7 @@ from enums import (
     OpcodeRevision,
     LogicalCompatibilityStatus,
     HistoryType,
+    RootIntEnum,
     TransactionDataTypeDict,
     TransactionHistoryRequestCommand
 )
@@ -31,16 +32,16 @@ from event_models import EventTypes
 
 class DeviceData(BaseModel):
 
-    roc_address: int
+    roc_address: Annotated[int, Field(serialization_alias='ROC Unit Address')]
     """ROC address for the target device."""
     
-    roc_group: int
+    roc_group: Annotated[int, Field(serialization_alias='ROC Group')]
     """ROC group for the target device."""
     
-    host_address: int = 1
+    host_address: Annotated[int, Field(serialization_alias='Host Address', default=1)]
     """Address of requesting device. Defaults to 1."""
     
-    host_group: int = 0
+    host_group: Annotated[int, Field(serialization_alias='Host Group', default=0)]
     """Group of requesting device. Defaults to 0."""
 
     def to_binary_request(self) -> bytes:
@@ -128,6 +129,23 @@ class ResponseData(BaseModel, ABC, Generic[T]):
         )
 
 
+class OpcodeData(BaseModel, ABC, Generic[T]):
+
+    @classmethod
+    @abstractmethod
+    def parse(cls, raw_response: bytes, request_data: RequestData) -> T:
+        """
+        Parse a raw binary message into an OpcodeData object instance.
+
+        Args:
+            raw_response (bytes): The raw binary response message to parse.
+            request_data (RequestData): The request data associated with the response.
+
+        Returns:
+            T: OpcodeData object instance
+        """
+        pass
+
 class MessageModel(BaseModel):
     """
     Model for a specific Opcode.
@@ -141,7 +159,7 @@ class MessageModel(BaseModel):
     request_data: Type[RequestData]
     """Model for opcode-specific request data."""
 
-    response_data: Type[ResponseData]
+    response_data: Type[BaseModel]
     """Model for opcode-specific response data."""
 
 
@@ -156,56 +174,79 @@ class SystemConfigRequestData(RequestData):
         return b''
 
 
-class SystemConfigData(BaseModel):
+class SystemConfigData(OpcodeData):
     """
     System Configuration data.
     """
 
-    operating_mode: Annotated[ROCOperatingMode, PlainSerializer(lambda x: {'name': x.name, 'value': x.value}, return_type=dict, when_used='always')]
+    operating_mode: Annotated[
+        ROCOperatingMode, 
+        PlainSerializer(lambda x: x.serialized, return_type=dict, when_used='always'), 
+        Field(serialization_alias='Operating Mode')
+    ]
     """The system mode the unit is currently operating in."""
 
-    comm_port: int
+    comm_port: Annotated[int, Field(serialization_alias='Comm Port')]
     """Comm Port or Port Number that this request arrived on."""
 
-    security_access_mode: int
+    security_access_mode: Annotated[int, Field(serialization_alias='Security Access Mode')]
     """Security Access Mode for the port the request was received on."""
 
-    compatibility_status: Annotated[LogicalCompatibilityStatus, PlainSerializer(lambda x: {'name': x.name, 'value': x.value}, return_type=dict, when_used='always')]
+    compatibility_status: Annotated[
+        LogicalCompatibilityStatus, 
+        PlainSerializer(lambda x: x.serialized, return_type=dict, when_used='always'),
+        Field(serialization_alias='Logical Compatibility Status')
+    ]
     """Logical Compatibility Status (see Point Type 91, Logical 0, Parameter 50)."""
 
-    opcode_revision: Annotated[OpcodeRevision, PlainSerializer(lambda x: {'name': x.name, 'value': x.value}, return_type=dict, when_used='always')]
+    opcode_revision: Annotated[
+        OpcodeRevision, 
+        PlainSerializer(lambda x: x.serialized, return_type=dict, when_used='always'),
+        Field(serialization_alias='Opcode 6 Revision (Version 2.02)')
+    ]
     """Opcode 6 Revision."""
 
-    roc_subtype: Annotated[ROCSubType, PlainSerializer(lambda x: {'name': x.name, 'value': x.value}, return_type=dict, when_used='always')]
+    roc_subtype: Annotated[
+        ROCSubType, 
+        PlainSerializer(lambda x: x.serialized, return_type=dict, when_used='always'),
+        Field(serialization_alias='ROC Subtype')
+    ]
     """ROC Subtype."""
 
-    roc_type: Annotated[ROCType, PlainSerializer(lambda x: {'name': x.name, 'value': x.value}, return_type=dict, when_used='always')]
+    roc_type: Annotated[
+        ROCType, 
+        PlainSerializer(lambda x: x.serialized, return_type=dict, when_used='always'),
+        Field(serialization_alias='ROC Type')
+    ]
     """Type of ROC."""
 
-    point_type_counts: Dict[int, int]
+    point_type_counts: Annotated[Dict[int, int], Field(serialization_alias='Configured Point Types')]
     """Number of logical points for each point type, indexed by point type ID."""
 
-
-class SystemConfigResponseData(ResponseData[SystemConfigData]):
-    """
-    Response data model for System Configuration request.
-    """
-
-    data: Optional[SystemConfigData] = None
-
     @classmethod
-    def data_from_binary(cls, raw_response: bytes, request_data: RequestData) -> SystemConfigData:
-        operating_mode: int = int(raw_response[6])
-        comm_port: int = struct.unpack('h', raw_response[7:9])[0]
-        security_access_mode: int = int(raw_response[9])
-        compatibility_status: int = int(raw_response[10])
-        opcode_revision: int = int(raw_response[11])
-        roc_subtype: int = int(raw_response[12])
-        roc_type: int = int(raw_response[24])
+    def parse(
+        cls, 
+        raw_response: bytes, 
+        request_data: RequestData
+    ) -> 'SystemConfigData':
+        (
+            operating_mode, 
+            comm_port, 
+            security_access_mode, 
+            compatibility_status, 
+            opcode_revision, 
+            roc_subtype 
+        ) = struct.unpack(
+            '<BhBBBB',
+            raw_response[6:13]
+        )
+        roc_type: int = raw_response[24]
         point_type_counts: Dict[int, int] = {}
-        for i in range(25, 221):
-            point_type: int = i + 35
-            point_type_counts[point_type] = int(raw_response[i])
+        point_type_bytes = raw_response[25:221]
+        starting_point_type = 60
+        for i, byte in enumerate(point_type_bytes):
+            point_type: int = i + starting_point_type
+            point_type_counts[point_type] = int(byte)
         return SystemConfigData(
             operating_mode=ROCOperatingMode(operating_mode),
             comm_port=comm_port,
@@ -1780,7 +1821,7 @@ class OpcodeErrorResponseData(ResponseData[OpcodeErrorData]):
 
 class MessageModels:
 
-    _6 = MessageModel(request_data=SystemConfigRequestData, response_data=SystemConfigResponseData, opcode_desc='System Configuration')
+    _6 = MessageModel(request_data=SystemConfigRequestData, response_data=SystemConfigData, opcode_desc='System Configuration')
     _7 = MessageModel(request_data=ReadClockRequestData, response_data=ReadClockResponseData, opcode_desc='Read Real-time Clock')
     _50 = MessageModel(request_data=IOLocationRequestData, response_data=IOLocationResponseData, opcode_desc='Request I/O Point Position')
     _105 = MessageModel(
