@@ -37,6 +37,7 @@ from client.models import (
 from tlp_models.point_types import PointTypeNotFoundError
 from tlp_models.tlp import TLPInstance, TLPValue, TLPValues
 from client.async_tcp_generic import TCPClient
+from opcode_models.core import OpcodeModel, SystemConfigOpcode, Request, Response, DeviceData, OpcodeExchange
 
 class ROCPlusClient:
     """
@@ -242,7 +243,7 @@ class ROCPlusClient:
     
 
 
-    async def make_opcode_request(self, request_data: RequestData) -> Response:
+    async def make_opcode_request(self, request_data: OpcodeModel.OpcodeRequestData) -> OpcodeExchange:
         """
         Send a single Opcode request and get response.
 
@@ -269,7 +270,7 @@ class ROCPlusClient:
         """
         try:
             self.logger.debug('Making opcode request.')
-            self.logger.trace(f'Request data: {request_data}')
+            self.logger.trace(f'Request data: {request_data.opcode}')
 
             if self._active_request == True:
                 raise ROCConnectionError('Already an active request being processed by client.')
@@ -283,7 +284,7 @@ class ROCPlusClient:
                 request_data=request_data
             )
             self.logger.debug('Request constructed. Converting to binary.')
-            request_packet: bytes = request.to_binary()
+            request_packet: bytes = request.encode()
             self.logger.debug('Submitting binary request data to stream.')
             await self._connection.write_to_stream(request_packet)
             self.logger.debug('Request written successfully. Reading response from stream.')
@@ -293,7 +294,8 @@ class ROCPlusClient:
             self.logger.debug('Response read successfully. Decoding binary payload into response object.')
             response: Response = Response.decode(raw_response=response_packet, request_data=request_data)
             self.logger.debug('Response decoded successfully. Returning response object.')
-            return response
+            exchange = OpcodeExchange(request=request, response=response)
+            return exchange
         except ValidationError as e:
             raise ROCDataError(f'Request and/or response data failed validation: {e}')
         finally:
